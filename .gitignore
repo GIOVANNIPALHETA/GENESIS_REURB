@@ -1,0 +1,30 @@
+# Dependências
+node_modules/
+*/node_modules/
+
+# Variáveis de ambiente e senhas
+.env
+.env.*
+!.env.example
+backend/.env
+frontend/.env
+
+# Documentos e arquivos enviados
+uploads/
+*/uploads/
+uploads/documents/
+
+# Builds e temporários
+dist/
+build/
+.cache/
+.tmp/
+test_require.js
+npm-debug.log*
+yarn-debug.log*
+
+# Arquivos do sistema/IDE
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

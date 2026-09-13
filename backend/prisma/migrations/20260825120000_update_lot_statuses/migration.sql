@@ -1,0 +1,11 @@
+CREATE TYPE "LotStatus_new" AS ENUM ('NOT_SIGNED', 'CONTRACT_SIGNED', 'DISTRATTO');
+
+ALTER TABLE "Lot" ALTER COLUMN "status" DROP DEFAULT;
+ALTER TABLE "Lot" ALTER COLUMN "status" TYPE "LotStatus_new"
+  USING (CASE "status"::text
+    WHEN 'CONTRACTED' THEN 'CONTRACT_SIGNED'
+    ELSE 'NOT_SIGNED'
+  END::text::"LotStatus_new");
+DROP TYPE "LotStatus";
+ALTER TYPE "LotStatus_new" RENAME TO "LotStatus";
+ALTER TABLE "Lot" ALTER COLUMN "status" SET DEFAULT 'NOT_SIGNED';

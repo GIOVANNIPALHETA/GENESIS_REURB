@@ -1,0 +1,602 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  GESTOR
+  ATENDENTE
+  FINANCEIRO
+  DOCUMENTAL
+  JURIDICO
+  CONSULTA
+}
+
+enum ProjectStatus {
+  PLANNING
+  IN_PROGRESS
+  COMPLETED
+  SUSPENDED
+}
+
+enum LotStatus {
+  NOT_SIGNED
+  CONTRACT_SIGNED
+  DISTRATTO
+}
+
+enum DocumentStatus {
+  PENDING
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  NOT_APPLICABLE
+  EXPIRED
+  ILLEGIBLE
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  OVERDUE
+  PARTIALLY_PAID
+  RENEGOTIATED
+  CANCELED
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  BANK_TRANSFER
+  PIX
+  ASAAS
+  MERCADO_PAGO
+}
+
+enum FinancialAccountType {
+  CASH
+  ASAAS
+  MERCADO_PAGO
+}
+
+enum ExpenseStatus {
+  PAID
+  PENDING
+  CANCELED
+}
+
+enum OccupancyType {
+  OWNER
+  TENANT
+  OCCUPANT
+}
+
+model User {
+  id             String          @id @default(uuid())
+  name           String
+  email          String          @unique
+  passwordHash   String
+  role           UserRole
+  active         Boolean         @default(true)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  auditLogs      AuditLog[]
+  documents          Document[]
+  serviceRecords     ServiceRecord[]
+  expenses           Expense[]
+  expenseAttachments ExpenseAttachment[]
+  profitWithdrawals  ProfitWithdrawal[]
+}
+
+model Project {
+  id             String          @id @default(uuid())
+  name           String
+  neighborhood   String?
+  city           String?
+  state          String?
+  description    String?
+  status         ProjectStatus   @default(PLANNING)
+  startDate      DateTime?
+  active         Boolean         @default(true)
+  plannedBlocks  Int             @default(0)
+  plannedLots    Int             @default(0)
+  blocks         Block[]
+  lots           Lot[]
+  contracts      Contract[]
+  serviceRecords ServiceRecord[]
+  expenses       Expense[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+}
+
+model Block {
+  id          String   @id @default(uuid())
+  project     Project  @relation(fields: [projectId], references: [id])
+  projectId   String
+  number      String
+  description String?
+  active      Boolean  @default(true)
+  lots        Lot[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([projectId])
+  @@unique([projectId, number])
+}
+
+model Lot {
+  id             String          @id @default(uuid())
+  project        Project         @relation(fields: [projectId], references: [id])
+  projectId      String
+  block          Block           @relation(fields: [blockId], references: [id])
+  blockId        String
+  number         String
+  address        String?
+  area           Float?
+  perimeter      Float?
+  frontDimension Float?
+  backDimension  Float?
+  rightDimension Float?
+  leftDimension  Float?
+  confrontations String?
+  latitude       Float?
+  longitude      Float?
+  geographicFile String?
+  technicalNotes String?
+  registration   String?
+  status         LotStatus       @default(NOT_SIGNED)
+  active         Boolean         @default(true)
+  observations   String?
+  occupancies    Occupancy[]
+  contracts      Contract[]
+  documents      Document[]
+  serviceRecords ServiceRecord[]
+  expenses       Expense[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@unique([projectId, blockId, number])
+  @@index([projectId])
+  @@index([blockId])
+}
+
+model Person {
+  id             String          @id @default(uuid())
+  fullName       String
+  cpf            String?         @unique
+  rg             String?
+  rgIssuer       String?
+  birthDate      DateTime?
+  maritalStatus  String?
+  profession     String?
+  nationality    String?
+  phone          String?
+  whatsapp       String?
+  email          String?
+  motherName     String?
+  fatherName     String?
+  observations   String?
+  spouse         Spouse?
+  occupancies    Occupancy[]
+  contracts      Contract[]
+  documents      Document[]
+  serviceRecords ServiceRecord[]
+  asaasCustomer  AsaasCustomer?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+}
+
+model Spouse {
+  id         String     @id @default(uuid())
+  person     Person     @relation(fields: [personId], references: [id])
+  personId   String     @unique
+  documents  Document[]
+  fullName   String
+  cpf        String?
+  rg         String?
+  rgIssuer   String?
+  birthDate  DateTime?
+  profession String?
+  phone      String?
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+}
+
+model Occupancy {
+  id           String        @id @default(uuid())
+  person       Person        @relation(fields: [personId], references: [id])
+  personId     String
+  lot          Lot           @relation(fields: [lotId], references: [id])
+  lotId        String
+  type         OccupancyType
+  startDate    DateTime?
+  current      Boolean       @default(true)
+  observations String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+}
+
+model Contract {
+  id             String          @id @default(uuid())
+  person         Person          @relation(fields: [personId], references: [id])
+  personId       String
+  lot            Lot             @relation(fields: [lotId], references: [id])
+  lotId          String
+  project        Project         @relation(fields: [projectId], references: [id])
+  projectId      String
+  contractNumber String          @unique
+  signed         Boolean         @default(false)
+  signedAt       DateTime?
+  status         String          @default("PENDING")
+  totalValue     Float           @default(0)
+  notes          String?
+  chains         ContractChain[]
+  negotiations   Negotiation[]
+  documents      Document[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+}
+
+model ContractChain {
+  id              String    @id @default(uuid())
+  contract        Contract  @relation(fields: [contractId], references: [id])
+  contractId      String
+  sellerName      String
+  sellerCpf       String?
+  buyerName       String
+  buyerCpf        String?
+  transactionDate DateTime?
+  sequence        Int
+  notes           String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([contractId])
+}
+
+model Negotiation {
+  id               String        @id @default(uuid())
+  contract         Contract      @relation(fields: [contractId], references: [id])
+  contractId       String
+  totalValue       Float
+  downPayment      Float
+  financedAmount   Float
+  installmentCount Int
+  discount         Float         @default(0)
+  status           String        @default("ACTIVE")
+  firstDueDate     DateTime?
+  installments     Installment[]
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  @@index([contractId])
+}
+
+model Installment {
+  id                String         @id @default(uuid())
+  negotiation       Negotiation    @relation(fields: [negotiationId], references: [id])
+  negotiationId     String
+  installmentNumber Int
+  description       String?
+  amount            Float
+  dueDate           DateTime
+  paidAmount        Float          @default(0)
+  paidAt            DateTime?
+  paymentMethod     PaymentMethod?
+  status            PaymentStatus  @default(PENDING)
+  asaasPaymentId    String?        @unique
+  invoiceUrl        String?
+  bankSlipUrl       String?
+  pixCode           String?
+  payments          Payment[]
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  @@index([negotiationId])
+}
+
+model Payment {
+  id            String            @id @default(uuid())
+  installment   Installment?      @relation(fields: [installmentId], references: [id])
+  installmentId String?
+  amount        Float
+  paymentDate   DateTime          @default(now())
+  paymentMethod PaymentMethod
+  account       FinancialAccount? @relation(fields: [accountId], references: [id])
+  accountId     String?
+  description   String?
+  externalId    String?
+  receiptPath   String?
+  notes         String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  @@index([installmentId])
+  @@index([accountId])
+}
+
+model FinancialAccount {
+  id             String               @id @default(uuid())
+  name           String
+  type           FinancialAccountType
+  openingBalance Float                @default(0)
+  active         Boolean              @default(true)
+  payments          Payment[]
+  expenses          Expense[]
+  profitWithdrawals ProfitWithdrawal[]
+  recurringExpenses RecurringExpense[]
+  createdAt         DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+}
+
+model ExpenseType {
+  id                   String             @id @default(uuid())
+  name                 String             @unique
+  description          String?
+  color                String?            @default("#0f5964")
+  icon                 String?            @default("Tag")
+  isFixed              Boolean            @default(false)
+  requiresReceipt      Boolean            @default(false)
+  affectsProfitSharing Boolean            @default(true)
+  active               Boolean            @default(true)
+  expenses             Expense[]
+  recurringExpenses    RecurringExpense[]
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+}
+
+model Expense {
+  id            String              @id @default(uuid())
+  expenseType   ExpenseType?        @relation(fields: [expenseTypeId], references: [id])
+  expenseTypeId String?
+  category      String?
+  account       FinancialAccount    @relation(fields: [accountId], references: [id])
+  accountId     String
+  user          User                @relation(fields: [userId], references: [id])
+  userId        String
+  project       Project?            @relation(fields: [projectId], references: [id])
+  projectId     String?
+  lot           Lot?                @relation(fields: [lotId], references: [id])
+  lotId         String?
+  beneficiary   String?             // Fornecedor / Favorecido
+  description   String
+  amount        Float
+  expenseDate   DateTime            @default(now())
+  dueDate       DateTime?
+  status        ExpenseStatus       @default(PAID)
+  paymentMethod PaymentMethod       @default(CASH)
+  transactionId String?
+  notes         String?
+  isRecurring   Boolean             @default(false)
+  attachments   ExpenseAttachment[]
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  @@index([accountId])
+  @@index([expenseTypeId])
+  @@index([expenseDate])
+  @@index([status])
+}
+
+model ExpenseAttachment {
+  id           String   @id @default(uuid())
+  expense      Expense  @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  expenseId    String
+  originalName String
+  fileName     String
+  filePath     String
+  mimeType     String
+  size         Int
+  uploadedBy   User     @relation(fields: [uploadedById], references: [id])
+  uploadedById String
+  createdAt    DateTime @default(now())
+
+  @@index([expenseId])
+}
+
+model AsaasFeeEntry {
+  id             String    @id @default(uuid())
+  asaasPaymentId String    @unique
+  grossAmount    Float
+  feeAmount      Float
+  netAmount      Float
+  feePercentage  Float?
+  feeDate        DateTime  @default(now())
+  customerName   String?
+  projectId      String?
+  lotId          String?
+  status         String    @default("CONCILIATED")
+  notes          String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([asaasPaymentId])
+  @@index([feeDate])
+}
+
+model ProfitBeneficiary {
+  id                String                 @id @default(uuid())
+  name              String
+  type              String                 @default("INDIVIDUAL") // INDIVIDUAL | COMPANY
+  documentNumber    String?
+  defaultPercentage Float                  @default(0)
+  paymentInfo       String?
+  active            Boolean                @default(true)
+  notes             String?
+  distributionItems ProfitDistributionItem[]
+  withdrawals       ProfitWithdrawal[]
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+}
+
+model ProfitDistributionPeriod {
+  id                  String                   @id @default(uuid())
+  periodYear          Int
+  periodMonth         Int
+  totalRevenue        Float                    @default(0)
+  operationalExpenses Float                    @default(0)
+  asaasFees           Float                    @default(0)
+  otherDeductions     Float                    @default(0)
+  netProfit           Float                    @default(0)
+  status              String                   @default("OPEN") // OPEN | CLOSED
+  notes               String?
+  items               ProfitDistributionItem[]
+  withdrawals         ProfitWithdrawal[]
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
+
+  @@unique([periodYear, periodMonth])
+}
+
+model ProfitDistributionItem {
+  id              String                   @id @default(uuid())
+  period          ProfitDistributionPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+  periodId        String
+  beneficiary     ProfitBeneficiary        @relation(fields: [beneficiaryId], references: [id])
+  beneficiaryId   String
+  percentage      Float
+  allocatedAmount Float
+  withdrawnAmount Float                    @default(0)
+  remainingAmount Float                    @default(0)
+  createdAt       DateTime                 @default(now())
+  updatedAt       DateTime                 @updatedAt
+
+  @@unique([periodId, beneficiaryId])
+}
+
+model ProfitWithdrawal {
+  id             String                    @id @default(uuid())
+  period         ProfitDistributionPeriod? @relation(fields: [periodId], references: [id])
+  periodId       String?
+  beneficiary    ProfitBeneficiary         @relation(fields: [beneficiaryId], references: [id])
+  beneficiaryId  String
+  account        FinancialAccount          @relation(fields: [accountId], references: [id])
+  accountId      String
+  user           User                      @relation(fields: [userId], references: [id])
+  userId         String
+  amount         Float
+  withdrawalDate DateTime                  @default(now())
+  paymentMethod  PaymentMethod             @default(PIX)
+  receiptPath    String?
+  notes          String?
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
+
+  @@index([beneficiaryId])
+  @@index([accountId])
+}
+
+model RecurringExpense {
+  id            String           @id @default(uuid())
+  expenseType   ExpenseType      @relation(fields: [expenseTypeId], references: [id])
+  expenseTypeId String
+  account       FinancialAccount @relation(fields: [accountId], references: [id])
+  accountId     String
+  description   String
+  amount        Float
+  dueDay        Int              @default(10)
+  frequency     String           @default("MONTHLY") // MONTHLY | BIWEEKLY | WEEKLY
+  startDate     DateTime         @default(now())
+  endDate       DateTime?
+  active        Boolean          @default(true)
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  @@index([expenseTypeId])
+  @@index([accountId])
+}
+
+model DocumentType {
+  id             String     @id @default(uuid())
+  name           String
+  category       String
+  required       Boolean    @default(false)
+  spouseDocument Boolean    @default(false)
+  active         Boolean    @default(true)
+  documents      Document[]
+}
+
+model Document {
+  id             String         @id @default(uuid())
+  person         Person?        @relation(fields: [personId], references: [id])
+  personId       String?
+  spouse         Spouse?        @relation(fields: [spouseId], references: [id])
+  spouseId       String?
+  lot            Lot?           @relation(fields: [lotId], references: [id])
+  lotId          String?
+  contract       Contract?      @relation(fields: [contractId], references: [id])
+  contractId     String?
+  documentType   DocumentType?  @relation(fields: [documentTypeId], references: [id])
+  documentTypeId String?
+  category       String?
+  originalName   String
+  fileName       String
+  filePath       String
+  mimeType       String
+  size           Int
+  status         DocumentStatus @default(PENDING)
+  issueDate      DateTime?
+  expirationDate DateTime?
+  notes          String?
+  uploadedBy     User           @relation(fields: [uploadedById], references: [id])
+  uploadedById   String
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+}
+
+model ServiceRecord {
+  id              String    @id @default(uuid())
+  person          Person    @relation(fields: [personId], references: [id])
+  personId        String
+  project         Project   @relation(fields: [projectId], references: [id])
+  projectId       String
+  lot             Lot       @relation(fields: [lotId], references: [id])
+  lotId           String
+  user            User      @relation(fields: [userId], references: [id])
+  userId          String
+  serviceDate     DateTime  @default(now())
+  description     String
+  pendingActions  String?
+  nextContactDate DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+model AuditLog {
+  id           String   @id @default(uuid())
+  user         User     @relation(fields: [userId], references: [id])
+  userId       String
+  action       String
+  entity       String
+  entityId     String
+  previousData Json?
+  newData      Json?
+  ipAddress    String?
+  createdAt    DateTime @default(now())
+}
+
+model AsaasCustomer {
+  id              String    @id @default(uuid())
+  person          Person    @relation(fields: [personId], references: [id])
+  personId        String    @unique
+  asaasCustomerId String    @unique
+  lastSyncAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+model AsaasWebhookEvent {
+  id          String    @id @default(uuid())
+  eventId     String    @unique
+  eventType   String
+  payload     Json
+  processed   Boolean   @default(false)
+  processedAt DateTime?
+  error       String?
+  createdAt   DateTime  @default(now())
+}
