@@ -1,3 +1,4 @@
+import { ProtectedFileLink } from '../components/ProtectedFileLink';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import axios from 'axios';
@@ -189,7 +190,20 @@ export function FinancePage() {
     paymentMethod: 'PIX',
     notes: '',
     file: null as File | null,
+    targetType: 'DOWN_PAYMENT' as 'DOWN_PAYMENT' | 'INSTALLMENT' | 'EXTRA',
+    targetInstallmentId: '',
   });
+
+  const selectedLotInstallments = useMemo(() => {
+    if (!revenueForm.lotId) return [];
+    return installments.filter(
+      (inst: any) =>
+        inst.negotiation?.contract?.lotId === revenueForm.lotId ||
+        inst.negotiation?.contract?.lot?.id === revenueForm.lotId
+    ).filter(
+      (inst: any) => inst.status !== 'PAID' && inst.status !== 'CANCELED'
+    );
+  }, [revenueForm.lotId, installments]);
 
   const [expenseForm, setExpenseForm] = useState({
     expenseTypeId: '',
@@ -350,6 +364,8 @@ export function FinancePage() {
           paymentMethod: 'PIX',
           notes: '',
           file: null,
+          targetType: 'DOWN_PAYMENT',
+          targetInstallmentId: '',
         });
         setRevenueModalOpen(true);
       }
@@ -578,7 +594,13 @@ export function FinancePage() {
     try {
       const fd = new FormData();
       fd.append('accountId', revenueForm.accountId);
-      if (revenueForm.lotId) fd.append('lotId', revenueForm.lotId);
+      if (revenueForm.lotId) {
+        fd.append('lotId', revenueForm.lotId);
+        fd.append('targetType', revenueForm.targetType);
+        if (revenueForm.targetInstallmentId) {
+          fd.append('targetInstallmentId', revenueForm.targetInstallmentId);
+        }
+      }
       fd.append('description', revenueForm.description);
       fd.append('amount', String(revenueForm.amount));
       fd.append('paymentDate', revenueForm.paymentDate);
@@ -597,6 +619,8 @@ export function FinancePage() {
         paymentMethod: 'PIX',
         notes: '',
         file: null,
+        targetType: 'DOWN_PAYMENT',
+        targetInstallmentId: '',
       });
       await loadData();
       alert('✅ Receita registrada com sucesso! O caixa e o lote foram atualizados.');
@@ -684,6 +708,8 @@ export function FinancePage() {
                 paymentMethod: 'PIX',
                 notes: '',
                 file: null,
+                targetType: 'DOWN_PAYMENT',
+                targetInstallmentId: '',
               });
               setRevenueModalOpen(true);
             }}
@@ -1268,6 +1294,8 @@ export function FinancePage() {
                     paymentMethod: 'PIX',
                     notes: '',
                     file: null,
+                    targetType: 'DOWN_PAYMENT',
+                    targetInstallmentId: '',
                   });
                   setRevenueModalOpen(true);
                 }}
@@ -1397,7 +1425,7 @@ export function FinancePage() {
                         </td>
                         <td className="px-4 py-3 text-center">
                           {exp.attachments && exp.attachments.length > 0 ? (
-                            <a
+                            <ProtectedFileLink
                               href={exp.attachments[0].filePath}
                               target="_blank"
                               rel="noopener noreferrer"
@@ -1405,7 +1433,7 @@ export function FinancePage() {
                               title={exp.attachments[0].originalName}
                             >
                               <Paperclip size={14} />
-                            </a>
+                            </ProtectedFileLink>
                           ) : (
                             <span className="text-slate-300">—</span>
                           )}
@@ -1506,7 +1534,7 @@ export function FinancePage() {
                       </span>
                       <div className="flex items-center gap-2">
                         {exp.attachments && exp.attachments.length > 0 && (
-                          <a
+                          <ProtectedFileLink
                             href={exp.attachments[0].filePath}
                             target="_blank"
                             rel="noopener noreferrer"
@@ -1514,7 +1542,7 @@ export function FinancePage() {
                             title={exp.attachments[0].originalName}
                           >
                             <Paperclip size={16} />
-                          </a>
+                          </ProtectedFileLink>
                         )}
                         <button
                           type="button"
@@ -2230,157 +2258,271 @@ export function FinancePage() {
 
       {/* MODAL: NOVA RECEITA MANUAL (ENTRADA) */}
       {revenueModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4">
-          <form onSubmit={handleSaveRevenue} className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-lg bg-white p-5 sm:p-6 shadow-xl space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-2 sm:p-4">
+          <div className="w-full max-w-lg max-h-[92vh] flex flex-col rounded-2xl bg-white shadow-2xl overflow-hidden border border-slate-200">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3 bg-slate-50/80 shrink-0">
               <div className="flex items-center gap-2 text-emerald-800">
-                <ArrowUpRight size={20} />
-                <h3 className="text-base sm:text-lg font-bold text-slate-900">Novo Lançamento de Receita (Entrada)</h3>
+                <ArrowUpRight size={18} />
+                <h3 className="text-base font-bold text-slate-900">Novo Lançamento de Receita</h3>
               </div>
-              <button type="button" onClick={() => setRevenueModalOpen(false)} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100">
+              <button type="button" onClick={() => setRevenueModalOpen(false)} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-200 hover:text-slate-700 transition">
                 <X size={18} />
               </button>
             </div>
 
-            <div className="space-y-3 text-xs">
-              <label className="block font-semibold text-slate-700">
-                Conta de Destino (Onde o dinheiro entrou)
-                <select
-                  required
-                  value={revenueForm.accountId}
-                  onChange={(e) => setRevenueForm({ ...revenueForm, accountId: e.target.value })}
-                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-[#0f5964] focus:outline-none"
-                >
-                  <option value="">Selecione uma conta...</option>
-                  {accounts.map((a) => (
-                    <option key={a.id} value={a.id}>{a.name} (Saldo Atual: {money(a.balance)})</option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="block font-semibold text-slate-700">
-                Lote Vinculado (Opcional)
-                <select
-                  value={revenueForm.lotId}
-                  onChange={(e) => {
-                    const selected = lotsList.find((l) => l.id === e.target.value);
-                    const ownerName = selected?.occupancies?.find((o: any) => o.current)?.person?.fullName || selected?.contracts?.[0]?.person?.fullName;
-                    setRevenueForm({
-                      ...revenueForm,
-                      lotId: e.target.value,
-                      description: ownerName ? `Recebimento Lote ${selected.number} - ${ownerName}` : revenueForm.description,
-                    });
-                  }}
-                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-[#0f5964] focus:outline-none"
-                >
-                  <option value="">-- Nenhum lote vinculado (Receita avulsa) --</option>
-                  {lotsList.map((l) => {
-                    const ownerName = l.occupancies?.find((o: any) => o.current)?.person?.fullName || l.contracts?.[0]?.person?.fullName || 'Sem titular';
-                    return (
-                      <option key={l.id} value={l.id}>
-                        Quadra {l.block?.number || '—'} · Lote {l.number} ({ownerName})
-                      </option>
-                    );
-                  })}
-                </select>
-              </label>
-
-              <label className="block font-semibold text-slate-700">
-                Descrição da Receita
-                <input
-                  required
-                  type="text"
-                  placeholder="Ex: Pagamento de entrada em espécie, Recebimento avulso..."
-                  value={revenueForm.description}
-                  onChange={(e) => setRevenueForm({ ...revenueForm, description: e.target.value })}
-                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-[#0f5964] focus:outline-none"
-                />
-              </label>
-
-              <div className="grid grid-cols-2 gap-3">
-                <label className="font-semibold text-slate-700">
-                  Valor Recebido (R$)
-                  <input
-                    required
-                    type="number"
-                    step="0.01"
-                    placeholder="0.00"
-                    value={revenueForm.amount}
-                    onChange={(e) => setRevenueForm({ ...revenueForm, amount: e.target.value })}
-                    className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-bold text-slate-900 focus:border-[#0f5964] focus:outline-none"
-                  />
-                </label>
-
-                <label className="font-semibold text-slate-700">
-                  Data do Recebimento
-                  <input
-                    type="date"
-                    value={revenueForm.paymentDate}
-                    onChange={(e) => setRevenueForm({ ...revenueForm, paymentDate: e.target.value })}
-                    className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-[#0f5964] focus:outline-none"
-                  />
-                </label>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <label className="font-semibold text-slate-700">
-                  Forma de Recebimento
+            {/* Modal Form */}
+            <form onSubmit={handleSaveRevenue} className="flex flex-col flex-1 overflow-hidden">
+              <div className="overflow-y-auto px-5 py-3.5 space-y-3 text-xs flex-1">
+                <label className="block font-semibold text-slate-700">
+                  Conta de Destino (Onde o dinheiro entrou)
                   <select
-                    value={revenueForm.paymentMethod}
-                    onChange={(e) => setRevenueForm({ ...revenueForm, paymentMethod: e.target.value })}
-                    className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-[#0f5964] focus:outline-none"
+                    required
+                    value={revenueForm.accountId}
+                    onChange={(e) => setRevenueForm({ ...revenueForm, accountId: e.target.value })}
+                    className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-900 focus:border-[#0f5964] focus:outline-none"
                   >
-                    <option value="CASH">Dinheiro</option>
-                    <option value="PIX">PIX</option>
-                    <option value="CARD">Cartão</option>
-                    <option value="BANK_TRANSFER">Transferência Bancária</option>
-                    <option value="MERCADO_PAGO">Mercado Pago</option>
-                    <option value="ASAAS">Asaas</option>
+                    <option value="">Selecione uma conta...</option>
+                    {accounts.map((a) => (
+                      <option key={a.id} value={a.id}>{a.name} (Saldo: {money(a.balance)})</option>
+                    ))}
                   </select>
                 </label>
 
-                <label className="font-semibold text-slate-700">
-                  Comprovante (Opcional)
-                  <input
-                    type="file"
-                    accept="image/*,.pdf"
+                <label className="block font-semibold text-slate-700">
+                  Lote Vinculado (Opcional)
+                  <select
+                    value={revenueForm.lotId}
                     onChange={(e) => {
-                      const f = e.target.files?.[0] || null;
-                      setRevenueForm({ ...revenueForm, file: f });
+                      const selected = lotsList.find((l) => l.id === e.target.value);
+                      const ownerName = selected?.occupancies?.find((o: any) => o.current)?.person?.fullName || selected?.contracts?.[0]?.person?.fullName;
+                      setRevenueForm({
+                        ...revenueForm,
+                        lotId: e.target.value,
+                        description: ownerName ? `Recebimento Lote ${selected.number} - ${ownerName}` : revenueForm.description,
+                      });
                     }}
-                    className="mt-1 w-full rounded-md border border-slate-300 p-1.5 text-xs"
+                    className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-900 focus:border-[#0f5964] focus:outline-none"
+                  >
+                    <option value="">-- Nenhum lote vinculado (Receita avulsa) --</option>
+                    {lotsList.map((l) => {
+                      const ownerName = l.occupancies?.find((o: any) => o.current)?.person?.fullName || l.contracts?.[0]?.person?.fullName || 'Sem titular';
+                      return (
+                        <option key={l.id} value={l.id}>
+                          Quadra {l.block?.number || '—'} · Lote {l.number} ({ownerName})
+                        </option>
+                      );
+                    })}
+                  </select>
+                </label>
+
+                {revenueForm.lotId && (
+                  <div className="space-y-2.5 rounded-xl border border-slate-200 bg-slate-50/70 p-2.5">
+                    <label className="block font-semibold text-slate-700 text-xs">
+                      Destino do Lançamento no Lote
+                    </label>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setRevenueForm((prev) => ({
+                            ...prev,
+                            targetType: 'DOWN_PAYMENT',
+                            targetInstallmentId: '',
+                          }))
+                        }
+                        className={`flex flex-col items-center justify-center text-center rounded-xl p-2 border transition text-xs ${
+                          revenueForm.targetType === 'DOWN_PAYMENT'
+                            ? 'border-emerald-600 bg-emerald-50 text-emerald-900 ring-2 ring-emerald-500/20 font-bold'
+                            : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-100'
+                        }`}
+                      >
+                        <span className="flex items-center gap-1">⭐ Entrada / Sinal</span>
+                        <span className="text-[10px] font-normal text-slate-500 mt-0.5">Sem mexer no plano</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const firstOpen = selectedLotInstallments[0];
+                          setRevenueForm((prev) => ({
+                            ...prev,
+                            targetType: 'INSTALLMENT',
+                            targetInstallmentId: firstOpen?.id || '',
+                            amount: firstOpen ? String(firstOpen.amount - firstOpen.paidAmount) : prev.amount,
+                          }));
+                        }}
+                        className={`flex flex-col items-center justify-center text-center rounded-xl p-2 border transition text-xs ${
+                          revenueForm.targetType === 'INSTALLMENT'
+                            ? 'border-emerald-600 bg-emerald-50 text-emerald-900 ring-2 ring-emerald-500/20 font-bold'
+                            : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-100'
+                        }`}
+                      >
+                        <span className="flex items-center gap-1">📄 Baixa Parcela</span>
+                        <span className="text-[10px] font-normal text-slate-500 mt-0.5">Quita parcela aberta</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setRevenueForm((prev) => ({
+                            ...prev,
+                            targetType: 'EXTRA',
+                            targetInstallmentId: '',
+                          }))
+                        }
+                        className={`flex flex-col items-center justify-center text-center rounded-xl p-2 border transition text-xs ${
+                          revenueForm.targetType === 'EXTRA'
+                            ? 'border-emerald-600 bg-emerald-50 text-emerald-900 ring-2 ring-emerald-500/20 font-bold'
+                            : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-100'
+                        }`}
+                      >
+                        <span className="flex items-center gap-1">➕ Avulsa / Extra</span>
+                        <span className="text-[10px] font-normal text-slate-500 mt-0.5">Acordo extra</span>
+                      </button>
+                    </div>
+
+                    {revenueForm.targetType === 'DOWN_PAYMENT' && (
+                      <p className="text-[11px] text-teal-800 bg-teal-50 border border-teal-200 rounded-lg p-2 leading-tight">
+                        💡 <strong>Entrada:</strong> Registrado como Entrada do lote. As parcelas contratadas continuam pendentes e intactas.
+                      </p>
+                    )}
+
+                    {revenueForm.targetType === 'INSTALLMENT' && (
+                      <div>
+                        <label className="block font-semibold text-slate-700 text-xs">
+                          Selecione a Parcela para Baixa
+                          <select
+                            required
+                            value={revenueForm.targetInstallmentId}
+                            onChange={(e) => {
+                              const sel = selectedLotInstallments.find((i: any) => i.id === e.target.value);
+                              setRevenueForm((prev) => ({
+                                ...prev,
+                                targetInstallmentId: e.target.value,
+                                amount: sel ? String(sel.amount - sel.paidAmount) : prev.amount,
+                              }));
+                            }}
+                            className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-900 focus:border-[#0f5964]"
+                          >
+                            <option value="">Selecione uma parcela...</option>
+                            {selectedLotInstallments.map((inst: any) => (
+                              <option key={inst.id} value={inst.id}>
+                                {inst.installmentNumber === 0 ? 'Entrada' : `Parcela ${inst.installmentNumber}`}
+                                {' - '}Venc: {new Date(inst.dueDate).toLocaleDateString('pt-BR')}
+                                {' - '}Valor: {money(inst.amount)} (Aberto: {money(inst.amount - inst.paidAmount)})
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        {selectedLotInstallments.length === 0 && (
+                          <p className="text-[10px] text-amber-700 mt-1">
+                            Este lote não possui parcelas pendentes.
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <label className="block font-semibold text-slate-700">
+                  Descrição da Receita
+                  <input
+                    required
+                    type="text"
+                    placeholder="Ex: Pagamento de entrada em espécie, Recebimento avulso..."
+                    value={revenueForm.description}
+                    onChange={(e) => setRevenueForm({ ...revenueForm, description: e.target.value })}
+                    className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-1.5 text-xs text-slate-900 focus:border-[#0f5964] focus:outline-none"
+                  />
+                </label>
+
+                <div className="grid grid-cols-2 gap-2.5">
+                  <label className="font-semibold text-slate-700">
+                    Valor Recebido (R$)
+                    <input
+                      required
+                      type="number"
+                      step="0.01"
+                      placeholder="0.00"
+                      value={revenueForm.amount}
+                      onChange={(e) => setRevenueForm({ ...revenueForm, amount: e.target.value })}
+                      className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-1.5 text-sm font-bold text-slate-900 focus:border-[#0f5964] focus:outline-none"
+                    />
+                  </label>
+
+                  <label className="font-semibold text-slate-700">
+                    Data do Recebimento
+                    <input
+                      type="date"
+                      value={revenueForm.paymentDate}
+                      onChange={(e) => setRevenueForm({ ...revenueForm, paymentDate: e.target.value })}
+                      className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-1.5 text-xs text-slate-900 focus:border-[#0f5964] focus:outline-none"
+                    />
+                  </label>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2.5">
+                  <label className="font-semibold text-slate-700">
+                    Forma de Recebimento
+                    <select
+                      value={revenueForm.paymentMethod}
+                      onChange={(e) => setRevenueForm({ ...revenueForm, paymentMethod: e.target.value })}
+                      className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-900 focus:border-[#0f5964] focus:outline-none"
+                    >
+                      <option value="CASH">Dinheiro</option>
+                      <option value="PIX">PIX</option>
+                      <option value="CARD">Cartão</option>
+                      <option value="BANK_TRANSFER">Transferência Bancária</option>
+                      <option value="MERCADO_PAGO">Mercado Pago</option>
+                      <option value="ASAAS">Asaas</option>
+                    </select>
+                  </label>
+
+                  <label className="font-semibold text-slate-700">
+                    Comprovante (Opcional)
+                    <input
+                      type="file"
+                      accept="image/*,.pdf"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0] || null;
+                        setRevenueForm({ ...revenueForm, file: f });
+                      }}
+                      className="mt-1 w-full rounded-xl border border-slate-300 p-1 text-[11px] bg-white"
+                    />
+                  </label>
+                </div>
+
+                <label className="block font-semibold text-slate-700">
+                  Observações (Opcional)
+                  <input
+                    type="text"
+                    placeholder="Informações adicionais..."
+                    value={revenueForm.notes}
+                    onChange={(e) => setRevenueForm({ ...revenueForm, notes: e.target.value })}
+                    className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-1.5 text-xs text-slate-900 focus:border-[#0f5964] focus:outline-none"
                   />
                 </label>
               </div>
 
-              <label className="block font-semibold text-slate-700">
-                Observações
-                <input
-                  type="text"
-                  placeholder="Informações adicionais..."
-                  value={revenueForm.notes}
-                  onChange={(e) => setRevenueForm({ ...revenueForm, notes: e.target.value })}
-                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-[#0f5964] focus:outline-none"
-                />
-              </label>
-            </div>
-
-            <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">
-              <button
-                type="button"
-                onClick={() => setRevenueModalOpen(false)}
-                className="min-h-[42px] rounded-lg border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition"
-              >
-                Cancelar
-              </button>
-              <button
-                type="submit"
-                className="min-h-[42px] rounded-lg bg-emerald-700 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-800 transition shadow-xs"
-              >
-                Salvar Receita
-              </button>
-            </div>
-          </form>
+              {/* Modal Footer - SEMPRE VISÍVEL FIXO NO RODAPÉ */}
+              <div className="flex items-center justify-end gap-2 border-t border-slate-100 px-5 py-3 bg-slate-50 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setRevenueModalOpen(false)}
+                  className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 transition"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="rounded-xl bg-emerald-700 px-5 py-2 text-xs font-bold text-white hover:bg-emerald-800 transition shadow-md"
+                >
+                  Salvar Receita
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </div>

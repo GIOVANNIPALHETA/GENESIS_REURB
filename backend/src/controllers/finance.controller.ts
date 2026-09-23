@@ -187,6 +187,8 @@ export async function createManualPayment(req: Request, res: Response) {
     description: z.string().min(1),
     notes: z.string().optional(),
     lotId: z.string().optional(),
+    targetType: z.enum(['DOWN_PAYMENT', 'INSTALLMENT', 'EXTRA']).optional(),
+    targetInstallmentId: z.string().optional(),
   });
 
   const result = manualSchema.safeParse({ ...req.body, amount: Number(req.body.amount) });
@@ -201,7 +203,7 @@ export async function createManualPayment(req: Request, res: Response) {
     }
 
     const receiptPath = req.file ? `/uploads/documents/${req.file.filename}` : null;
-    const { lotId, ...data } = result.data;
+    const { lotId, targetType = 'DOWN_PAYMENT', targetInstallmentId: requestedInstallmentId, ...data } = result.data;
 
     const payment = await prisma.$transaction(async (tx) => {
       let targetInstallmentId: string | undefined = undefined;
@@ -274,33 +276,42 @@ export async function createManualPayment(req: Request, res: Response) {
             });
 
             targetInstallmentId = newNeg.installments[0]?.id;
-          } else if (contract) {
-            // Se já tem contrato, busca uma parcela pendente ou cria uma nova parcela de recebimento
-            const openInstallment = contract.negotiations[0]?.installments.find(
-              (i) => i.status !== PaymentStatus.PAID
-            );
+          } else if (contract && contract.negotiations[0]) {
+            const negotiation = contract.negotiations[0];
 
-            if (openInstallment) {
-              targetInstallmentId = openInstallment.id;
-              const paidAmount = openInstallment.paidAmount + data.amount;
-              const isFull = paidAmount >= openInstallment.amount;
+            if (targetType === 'INSTALLMENT' && requestedInstallmentId) {
+              // 1. Baixa em parcela específica selecionada pelo usuário
+              const openInstallment = negotiation.installments.find(
+                (i) => i.id === requestedInstallmentId
+              );
 
-              await tx.installment.update({
-                where: { id: openInstallment.id },
-                data: {
-                  paidAmount,
-                  paidAt: isFull ? new Date(data.paymentDate || Date.now()) : null,
-                  paymentMethod: data.paymentMethod,
-                  status: isFull ? PaymentStatus.PAID : PaymentStatus.PARTIALLY_PAID,
-                },
-              });
-            } else if (contract.negotiations[0]) {
-              // Se todas as parcelas já estavam pagas, adiciona uma nova parcela paga para comportar o valor
-              const nextNumber = (contract.negotiations[0].installments.length || 0) + 1;
+              if (openInstallment) {
+                targetInstallmentId = openInstallment.id;
+                const paidAmount = openInstallment.paidAmount + data.amount;
+                const isFull = paidAmount >= openInstallment.amount;
+
+                await tx.installment.update({
+                  where: { id: openInstallment.id },
+                  data: {
+                    paidAmount,
+                    paidAt: isFull ? new Date(data.paymentDate || Date.now()) : openInstallment.paidAt,
+                    paymentMethod: data.paymentMethod,
+                    status: isFull ? PaymentStatus.PAID : PaymentStatus.PARTIALLY_PAID,
+                  },
+                });
+              }
+            } else if (targetType === 'EXTRA') {
+              // 2. Receita avulsa / extra: adiciona nova parcela quitada ao final
+              const maxNumber = negotiation.installments.reduce(
+                (max, i) => Math.max(max, i.installmentNumber),
+                0
+              );
+              const nextNumber = maxNumber + 1;
               const newInst = await tx.installment.create({
                 data: {
-                  negotiationId: contract.negotiations[0].id,
+                  negotiationId: negotiation.id,
                   installmentNumber: nextNumber,
+                  description: data.description || `Recebimento Avulso #${nextNumber}`,
                   amount: data.amount,
                   paidAmount: data.amount,
                   dueDate: data.paymentDate ? new Date(data.paymentDate) : new Date(),
@@ -310,6 +321,90 @@ export async function createManualPayment(req: Request, res: Response) {
                 },
               });
               targetInstallmentId = newInst.id;
+
+              await tx.negotiation.update({
+                where: { id: negotiation.id },
+                data: {
+                  totalValue: (negotiation.totalValue || 0) + data.amount,
+                },
+              });
+              await tx.contract.update({
+                where: { id: contract.id },
+                data: {
+                  totalValue: (contract.totalValue || 0) + data.amount,
+                },
+              });
+            } else {
+              // 3. targetType === 'DOWN_PAYMENT' (Padrão para Entrada / Sinal)
+              // Verifica se já existe uma parcela de entrada
+              const existingEntrada = negotiation.installments.find(
+                (i) =>
+                  i.installmentNumber === 0 ||
+                  (i.description && i.description.toLowerCase().includes('entrada'))
+              );
+
+              if (existingEntrada && existingEntrada.status !== PaymentStatus.PAID) {
+                targetInstallmentId = existingEntrada.id;
+                const paidAmount = existingEntrada.paidAmount + data.amount;
+                const isFull = paidAmount >= existingEntrada.amount;
+
+                await tx.installment.update({
+                  where: { id: existingEntrada.id },
+                  data: {
+                    paidAmount,
+                    paidAt: isFull ? new Date(data.paymentDate || Date.now()) : existingEntrada.paidAt,
+                    paymentMethod: data.paymentMethod,
+                    status: isFull ? PaymentStatus.PAID : PaymentStatus.PARTIALLY_PAID,
+                  },
+                });
+
+                if (paidAmount > existingEntrada.amount) {
+                  const diff = paidAmount - existingEntrada.amount;
+                  await tx.negotiation.update({
+                    where: { id: negotiation.id },
+                    data: {
+                      downPayment: (negotiation.downPayment || 0) + diff,
+                      totalValue: (negotiation.totalValue || 0) + diff,
+                    },
+                  });
+                  await tx.contract.update({
+                    where: { id: contract.id },
+                    data: {
+                      totalValue: (contract.totalValue || 0) + diff,
+                    },
+                  });
+                }
+              } else {
+                // Não existe entrada cadastrada ou já estava quitada: cria parcela de Entrada (número 0)
+                const newInst = await tx.installment.create({
+                  data: {
+                    negotiationId: negotiation.id,
+                    installmentNumber: 0,
+                    description: data.description || 'Entrada',
+                    amount: data.amount,
+                    paidAmount: data.amount,
+                    dueDate: data.paymentDate ? new Date(data.paymentDate) : new Date(),
+                    paidAt: data.paymentDate ? new Date(data.paymentDate) : new Date(),
+                    paymentMethod: data.paymentMethod,
+                    status: PaymentStatus.PAID,
+                  },
+                });
+                targetInstallmentId = newInst.id;
+
+                await tx.negotiation.update({
+                  where: { id: negotiation.id },
+                  data: {
+                    downPayment: (negotiation.downPayment || 0) + data.amount,
+                    totalValue: (negotiation.totalValue || 0) + data.amount,
+                  },
+                });
+                await tx.contract.update({
+                  where: { id: contract.id },
+                  data: {
+                    totalValue: (contract.totalValue || 0) + data.amount,
+                  },
+                });
+              }
             }
           }
         }
@@ -450,6 +545,48 @@ export async function cancelPayment(req: Request, res: Response) {
       });
       const paidAmount = Number(Math.max(installment.paidAmount - current.amount, 0).toFixed(2));
       const latestPayment = remainingPayments[0];
+
+      // Se for lançamento de Entrada (installmentNumber === 0), ajusta o downPayment e totalValue da negociação
+      if (installment.installmentNumber === 0) {
+        const negotiation = await tx.negotiation.findUnique({
+          where: { id: installment.negotiationId },
+          include: { contract: true },
+        });
+        if (negotiation) {
+          const newDownPayment = Math.max(0, (negotiation.downPayment || 0) - current.amount);
+          const newTotal = Math.max(0, (negotiation.totalValue || 0) - current.amount);
+          await tx.negotiation.update({
+            where: { id: negotiation.id },
+            data: { downPayment: newDownPayment, totalValue: newTotal },
+          });
+          if (negotiation.contract) {
+            await tx.contract.update({
+              where: { id: negotiation.contract.id },
+              data: { totalValue: Math.max(0, negotiation.contract.totalValue - current.amount) },
+            });
+          }
+
+          // Se não restar nenhum pagamento e a entrada estiver zerada, remove a parcela criada avulsa
+          if (remainingPayments.length === 0 && newDownPayment === 0) {
+            await tx.payment.delete({ where: { id: current.id } });
+            await tx.installment.delete({ where: { id: installment.id } });
+            if (req.user) {
+              await tx.auditLog.create({
+                data: {
+                  userId: req.user.id,
+                  action: 'ESTORNO',
+                  entity: 'Payment',
+                  entityId: current.id,
+                  previousData: current as any,
+                  newData: { status: 'ESTORNADO_E_EXCLUIDO' },
+                },
+              });
+            }
+            return { ...current, installment: null };
+          }
+        }
+      }
+
       const updatedInstallment = await tx.installment.update({
         where: { id: current.installmentId },
         data: {

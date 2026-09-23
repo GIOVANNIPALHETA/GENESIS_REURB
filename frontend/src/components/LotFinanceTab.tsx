@@ -1,3 +1,4 @@
+import { ProtectedFileLink } from './ProtectedFileLink';
 import { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { CreditCard, ExternalLink, Paperclip, Plus, Receipt, Tag, Trash2, Zap } from 'lucide-react';
@@ -602,14 +603,14 @@ export function LotFinanceTab({ lot, owner, onChanged }: Props) {
                                 </p>
                               )}
                               {p.receiptPath && (
-                                <a
+                                <ProtectedFileLink
                                   href={p.receiptPath}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#0f5964] hover:underline mt-0.5"
                                 >
                                   <Paperclip size={11} /> Comprovante
-                                </a>
+                                </ProtectedFileLink>
                               )}
                             </div>
                           ))}

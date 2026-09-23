@@ -1,3 +1,4 @@
+import { ProtectedFileLink } from './ProtectedFileLink';
 import React, { useRef } from 'react';
 import {
   CalendarClock,
@@ -314,14 +315,14 @@ export function InstallmentModal({
                 <Paperclip size={15} /> Comprovante de Pagamento (Opcional)
               </span>
               {currentReceipt && (
-                <a
+                <ProtectedFileLink
                   href={currentReceipt}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center gap-1 text-xs font-semibold text-[#0f5964] hover:underline"
                 >
                   <ExternalLink size={13} /> Ver Comprovante Atual
-                </a>
+                </ProtectedFileLink>
               )}
             </div>
 

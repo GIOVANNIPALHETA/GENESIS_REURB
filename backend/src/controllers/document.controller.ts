@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { isApprovedAndValid, normalizeCategory } from '../utils/documentChecklist';
 import fs from 'fs';
 import path from 'path';
 import { z } from 'zod';
@@ -21,7 +22,13 @@ export async function listDocuments(req: Request, res: Response) {
     include: {
       person: { select: { id: true, fullName: true, cpf: true } },
       documentType: { select: { id: true, name: true, category: true } },
-      lot: { select: { id: true, number: true } },
+      lot: {
+        select: {
+          id: true,
+          number: true,
+          block: { select: { id: true, number: true } },
+        },
+      },
       uploadedBy: { select: { id: true, name: true } },
     },
     orderBy: { createdAt: 'desc' },
@@ -49,7 +56,7 @@ export async function getDossiersControl(req: Request, res: Response) {
                       person: {
                         OR: [
                           { fullName: { contains: search.trim(), mode: 'insensitive' } },
-                          { cpf: { contains: search.trim().replace(/\D/g, '') } },
+                          ...(search.trim().replace(/\D/g, '') ? [{ cpf: { contains: search.trim().replace(/\D/g, '') } }] : []),
                         ],
                       },
                     },
@@ -87,7 +94,7 @@ export async function getDossiersControl(req: Request, res: Response) {
       {
         key: 'doc_titular',
         label: 'RG/CPF Titular',
-        categories: ['RG/CPF ou CNH do Titular', 'Documento Pessoal', 'Documento de identidade', 'CPF', 'RG', 'CNH'],
+        categories: ['RG/CPF ou CNH do Titular', 'RG, CPF ou CNH do Titular', 'Documento Pessoal', 'Documento de identidade', 'CPF', 'RG', 'CNH'],
         required: true,
       },
       {
@@ -99,7 +106,7 @@ export async function getDossiersControl(req: Request, res: Response) {
       {
         key: 'civil_cert',
         label: 'Certidão Civil',
-        categories: ['Certidão de Casamento ou Nascimento', 'Certidão de casamento', 'Certidão de nascimento', 'Certidão'],
+        categories: ['Certidão de Casamento ou Nascimento', 'Certidão de Nascimento ou Casamento', 'Certidão de casamento', 'Certidão de nascimento', 'Certidão'],
         required: true,
       },
       {
@@ -111,25 +118,25 @@ export async function getDossiersControl(req: Request, res: Response) {
       {
         key: 'purchase_contract',
         label: 'Contrato Compra/Venda',
-        categories: ['Contrato de Compra e Venda do Lote', 'Compra e Venda', 'Contrato Compra e Venda', 'Contrato de Compra', 'Recibo de Compra'],
+        categories: ['Contrato de Compra e Venda do Lote', 'Contrato de Compra e Venda', 'Contrato Assinado', 'Compra e Venda', 'Contrato Compra e Venda', 'Contrato de Compra', 'Recibo de Compra'],
         required: true,
       },
       {
         key: 'chain_contract',
         label: 'Cadeia Dominial',
-        categories: ['Sequência de Contrato (Cadeia Dominial)', 'Cadeia Dominial', 'Sequência de Contrato', 'Cadeia de Contrato'],
+        categories: ['Sequência de Contrato (Cadeia Dominial)', 'Cadeia Dominial (Contratos Anteriores)', 'Cadeia Dominial', 'Sequência de Contrato', 'Cadeia de Contrato'],
         required: false,
       },
       {
         key: 'service_contract',
         label: 'Termo Adesão REURB',
-        categories: ['Contrato de Prestação de Serviços (REURB)', 'Termo de Adesão', 'Prestação de Serviços', 'Contrato REURB'],
+        categories: ['Contrato de Prestação de Serviços (REURB)', 'Contrato de Prestação de Serviços', 'Contrato / Termo de Adesão REURB', 'Termo de Adesão', 'Prestação de Serviços', 'Contrato REURB'],
         required: true,
       },
       {
         key: 'complementary',
         label: 'Docs Complementares',
-        categories: ['Documentos Complementares', 'Complementar', 'IPTU', 'Memorial', 'Topografia'],
+        categories: ['Documentos Complementares', 'Documentos Complementares (IPTU, Planta)', 'Documento Técnico', 'Planta e Topografia', 'Outros', 'Complementar', 'IPTU', 'Memorial', 'Topografia'],
         required: false,
       },
     ];
@@ -147,6 +154,7 @@ export async function getDossiersControl(req: Request, res: Response) {
         owner?.maritalStatus === 'Casado(a)' ||
         owner?.maritalStatus === 'UNIAO_ESTAVEL' ||
         owner?.maritalStatus === 'União estável' ||
+        owner?.maritalStatus === 'União Estável' ||
         owner?.spouse
       );
 
@@ -156,8 +164,9 @@ export async function getDossiersControl(req: Request, res: Response) {
       const checklistStatus = CHECKLIST_DEFINITIONS.map((def) => {
         const isRequired = def.requiresSpouse ? isMarried : Boolean(def.required);
         const attachedDocs = lotDocs.filter((d) => {
-          const cat = (d.category || d.documentType?.name || d.originalName || '').toLowerCase();
-          return def.categories.some((c) => cat.includes(c.toLowerCase()));
+          const cat = normalizeCategory(d.category || d.documentType?.name || d.originalName || '');
+          if (def.key === 'doc_titular' && (d.spouseId || cat.includes('conjuge'))) return false;
+          return def.categories.some((c) => cat === normalizeCategory(c));
         });
 
         return {
@@ -167,12 +176,13 @@ export async function getDossiersControl(req: Request, res: Response) {
           isApplicable: def.requiresSpouse ? isMarried : true,
           count: attachedDocs.length,
           hasDoc: attachedDocs.length > 0,
+          isComplete: attachedDocs.some((document) => isApprovedAndValid(document)),
           documents: attachedDocs,
         };
       });
 
       const requiredItems = checklistStatus.filter((i) => i.required);
-      const completedRequired = requiredItems.filter((i) => i.hasDoc).length;
+      const completedRequired = requiredItems.filter((i) => i.isComplete).length;
       const progressPercent = requiredItems.length > 0 ? Math.round((completedRequired / requiredItems.length) * 100) : 0;
 
       let status: 'COMPLETE' | 'PENDING' | 'EMPTY' | 'NO_OWNER' = 'EMPTY';

@@ -1,3 +1,5 @@
+import { DocumentStatusSelect } from '../components/DocumentStatusSelect';
+import { ProtectedFileLink } from '../components/ProtectedFileLink';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import {
@@ -25,9 +27,11 @@ import {
   Upload,
   User,
   X,
+  Camera,
 } from 'lucide-react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { LotFinanceTab } from '../components/LotFinanceTab';
+import { DocumentScannerModal } from '../components/DocumentScannerModal';
 
 type Person = {
   id: string;
@@ -70,6 +74,7 @@ type Payment = {
 type Installment = {
   id: string;
   installmentNumber: number;
+  description?: string | null;
   amount: number;
   paidAmount: number;
   dueDate: string;
@@ -103,6 +108,9 @@ type Contract = {
 };
 
 type DocumentItem = {
+  status?: string;
+  expirationDate?: string | null;
+  spouseId?: string | null;
   id: string;
   originalName: string;
   fileName: string;
@@ -195,6 +203,8 @@ export function LotDetailPage() {
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [newContractModalOpen, setNewContractModalOpen] = useState(false);
   const [uploadDocModalOpen, setUploadDocModalOpen] = useState(false);
+  const [scannerModalOpen, setScannerModalOpen] = useState(false);
+  const [scannerCategory, setScannerCategory] = useState('RG/CPF ou CNH do Titular');
   const [revenueModalOpen, setRevenueModalOpen] = useState(false);
   const [accounts, setAccounts] = useState<{ id: string; name: string; balance: number }[]>([]);
 
@@ -206,7 +216,37 @@ export function LotDetailPage() {
     paymentMethod: 'PIX',
     notes: '',
     file: null as File | null,
+    targetType: 'DOWN_PAYMENT' as 'DOWN_PAYMENT' | 'INSTALLMENT' | 'EXTRA',
+    targetInstallmentId: '',
   });
+
+  const openInstallments = useMemo(() => {
+    const list: Array<{
+      id: string;
+      installmentNumber: number;
+      description?: string | null;
+      amount: number;
+      paidAmount: number;
+      dueDate: string;
+    }> = [];
+    for (const c of lot?.contracts || []) {
+      for (const neg of c.negotiations || []) {
+        for (const inst of neg.installments || []) {
+          if (inst.status !== 'PAID' && inst.status !== 'CANCELED') {
+            list.push({
+              id: inst.id,
+              installmentNumber: inst.installmentNumber,
+              description: inst.description,
+              amount: inst.amount,
+              paidAmount: inst.paidAmount,
+              dueDate: inst.dueDate,
+            });
+          }
+        }
+      }
+    }
+    return list;
+  }, [lot]);
 
   const [editForm, setEditForm] = useState({
     number: '',
@@ -301,6 +341,10 @@ export function LotDetailPage() {
       const fd = new FormData();
       fd.append('accountId', revenueForm.accountId);
       fd.append('lotId', lot.id);
+      fd.append('targetType', revenueForm.targetType);
+      if (revenueForm.targetInstallmentId) {
+        fd.append('targetInstallmentId', revenueForm.targetInstallmentId);
+      }
       fd.append('description', revenueForm.description);
       fd.append('amount', String(revenueForm.amount));
       fd.append('paymentDate', revenueForm.paymentDate);
@@ -318,6 +362,8 @@ export function LotDetailPage() {
         paymentMethod: 'PIX',
         notes: '',
         file: null,
+        targetType: 'DOWN_PAYMENT',
+        targetInstallmentId: '',
       });
       await loadLot();
       setActiveTab('finance');
@@ -561,7 +607,9 @@ export function LotDetailPage() {
               onClick={() => {
                 setRevenueForm({
                   accountId: accounts[0]?.id || '',
-                  description: currentOwner ? `Recebimento Lote ${lot.number} - ${currentOwner.fullName}` : `Recebimento Lote ${lot.number}`,
+                  targetType: 'DOWN_PAYMENT',
+                  targetInstallmentId: '',
+                  description: currentOwner ? `Entrada Lote ${lot.number} - ${currentOwner.fullName}` : `Entrada Lote ${lot.number}`,
                   amount: '',
                   paymentDate: new Date().toISOString().slice(0, 10),
                   paymentMethod: 'PIX',
@@ -936,7 +984,7 @@ export function LotDetailPage() {
 
       {/* ABA 4: DOCUMENTOS COM CHECKLIST */}
       {activeTab === 'documents' && (() => {
-        const isMarried = currentOwner?.maritalStatus === 'Casado(a)' || currentOwner?.maritalStatus === 'União Estável' || !!currentOwner?.spouse;
+        const isMarried = ['CASADO', 'Casado(a)', 'UNIAO_ESTAVEL', 'União estável', 'União Estável'].includes(currentOwner?.maritalStatus || '') || !!currentOwner?.spouse;
 
         const CHECKLIST_ITEMS = [
           {
@@ -944,70 +992,73 @@ export function LotDetailPage() {
             title: '1. RG, CPF ou CNH do Titular',
             desc: 'Documento oficial com foto e CPF do requerente principal',
             required: true,
-            categories: ['RG/CPF ou CNH do Titular', 'Documento Pessoal'],
+            categories: ["RG/CPF ou CNH do Titular","Documento Pessoal","RG, CPF ou CNH do Titular","Documento de identidade","CPF","RG","CNH"],
           },
           {
             key: 'doc_spouse',
             title: '2. Documento do Cônjuge',
             desc: isMarried ? 'RG, CPF ou CNH do cônjuge / companheiro(a)' : 'Opcional (apenas se for casado ou união estável)',
             required: isMarried,
-            categories: ['Documento do Cônjuge'],
+            categories: ["Documento do Cônjuge","Documento do conjuge","RG Cônjuge","CPF Cônjuge"],
           },
           {
             key: 'doc_civil',
             title: '3. Certidão de Casamento ou Nascimento',
             desc: isMarried ? 'Certidão de casamento com eventuais averbações' : 'Certidão de nascimento (ou casamento/óbito/divórcio)',
             required: true,
-            categories: ['Certidão de Casamento ou Nascimento'],
+            categories: ["Certidão de Casamento ou Nascimento","Certidão de Nascimento ou Casamento","Certidão de casamento","Certidão de nascimento","Certidão"],
           },
           {
             key: 'doc_residence',
             title: '4. Comprovante de Residência',
             desc: 'Conta de energia, água ou telefone recente em nome do requerente',
             required: true,
-            categories: ['Comprovante de Residência'],
+            categories: ["Comprovante de Residência","Comprovante de residência","Comprovante residência","Comprovante"],
           },
           {
             key: 'doc_purchase',
             title: '5. Contrato de Compra e Venda do Lote',
             desc: 'Instrumento particular ou recibo de compra do imóvel',
             required: true,
-            categories: ['Contrato de Compra e Venda', 'Contrato Assinado'],
+            categories: ["Contrato de Compra e Venda","Contrato Assinado","Contrato de Compra e Venda do Lote","Compra e Venda","Contrato Compra e Venda","Contrato de Compra","Recibo de Compra"],
           },
           {
             key: 'doc_sequence',
             title: '6. Sequência de Contrato',
             desc: 'Cadeia sucessória / contratos anteriores que comprovem a posse histórica',
             required: false,
-            categories: ['Sequência de Contrato'],
+            categories: ["Sequência de Contrato","Sequência de Contrato (Cadeia Dominial)","Cadeia Dominial (Contratos Anteriores)","Cadeia Dominial","Cadeia de Contrato"],
           },
           {
             key: 'doc_service',
             title: '7. Contrato de Prestação de Serviços',
             desc: 'Contrato firmado para regularização fundiária / assessoria REURB',
             required: true,
-            categories: ['Contrato de Prestação de Serviços'],
+            categories: ["Contrato de Prestação de Serviços","Contrato de Prestação de Serviços (REURB)","Contrato / Termo de Adesão REURB","Termo de Adesão","Prestação de Serviços","Contrato REURB"],
           },
           {
             key: 'doc_extra',
             title: '8. Documentos Complementares',
             desc: 'IPTU, comprovantes de posse antiga, fotos do lote, memoriais, etc.',
             required: false,
-            categories: ['Documentos Complementares', 'Documento Técnico', 'Planta e Topografia', 'Outros'],
+            categories: ["Documentos Complementares","Documento Técnico","Planta e Topografia","Outros","Documentos Complementares (IPTU, Planta)","Complementar","IPTU","Memorial","Topografia"],
           },
         ];
 
         // Mapear documentos anexados por item do checklist
+        const isValid = (document: DocumentItem) => document.status === 'APPROVED' && (!document.expirationDate || document.expirationDate.slice(0, 10) >= new Date().toISOString().slice(0, 10));
+        const normalize = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
         const getDocsForChecklist = (categories: string[]) => {
           if (!lot.documents) return [];
           return lot.documents.filter((d) => {
             const cat = d.category || d.documentType?.name || 'Outros';
-            return categories.some((c) => cat.toLowerCase().includes(c.toLowerCase()) || c.toLowerCase().includes(cat.toLowerCase()));
+            if (categories[0] === 'RG/CPF ou CNH do Titular' && (d.spouseId || normalize(cat).includes('conjuge'))) return false;
+            return categories.some((c) => normalize(cat) === normalize(c));
           });
         };
 
         const totalRequired = CHECKLIST_ITEMS.filter((i) => i.required).length;
-        const totalCompleted = CHECKLIST_ITEMS.filter((i) => i.required && getDocsForChecklist(i.categories).length > 0).length;
+        const totalCompleted = CHECKLIST_ITEMS.filter((i) => i.required && getDocsForChecklist(i.categories).some(isValid)).length;
         const progressPercent = Math.round((totalCompleted / totalRequired) * 100);
 
         return (
@@ -1020,16 +1071,29 @@ export function LotDetailPage() {
                   Controle analítico de documentação jurídica, pessoal e posse necessária para emissão do título.
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setDocUploadState({ file: null, category: 'RG/CPF ou CNH do Titular', notes: '' });
-                  setUploadDocModalOpen(true);
-                }}
-                className="flex items-center gap-2 rounded-xl bg-[#0f5964] px-4 py-2 text-xs font-bold text-white hover:bg-[#0c4952] transition shadow-sm"
-              >
-                <Upload size={15} /> Anexar Documento
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setScannerCategory('RG/CPF ou CNH do Titular');
+                    setScannerModalOpen(true);
+                  }}
+                  className="flex items-center gap-2 rounded-xl bg-teal-600 px-4 py-2 text-xs font-bold text-white hover:bg-teal-700 transition shadow-sm cursor-pointer"
+                  title="Escanear documento com a câmera do celular"
+                >
+                  <Camera size={15} /> Escanear pelo Celular
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDocUploadState({ file: null, category: 'RG/CPF ou CNH do Titular', notes: '' });
+                    setUploadDocModalOpen(true);
+                  }}
+                  className="flex items-center gap-2 rounded-xl bg-[#0f5964] px-4 py-2 text-xs font-bold text-white hover:bg-[#0c4952] transition shadow-sm"
+                >
+                  <Upload size={15} /> Anexar Documento
+                </button>
+              </div>
             </div>
 
             {/* BARRA DE PROGRESSO DO CHECKLIST */}
@@ -1040,7 +1104,7 @@ export function LotDetailPage() {
                   <span className="text-sm font-bold text-slate-900">Progresso dos Documentos Obrigatórios</span>
                 </div>
                 <span className={`text-xs font-extrabold px-3 py-1 rounded-full ${progressPercent === 100 ? 'bg-emerald-100 text-emerald-800' : 'bg-teal-50 text-[#0f5964]'}`}>
-                  {totalCompleted} de {totalRequired} obrigatórios ({progressPercent}%)
+                  {totalCompleted} de {totalRequired} aprovados ({progressPercent}%)
                 </span>
               </div>
               <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
@@ -1056,6 +1120,7 @@ export function LotDetailPage() {
               {CHECKLIST_ITEMS.map((item) => {
                 const attached = getDocsForChecklist(item.categories);
                 const hasDocs = attached.length > 0;
+                const isComplete = attached.some(isValid);
                 const isDragTarget = dragTargetChecklistKey === item.key;
 
                 return (
@@ -1095,7 +1160,7 @@ export function LotDetailPage() {
                     className={`rounded-2xl border transition-all p-4.5 bg-white shadow-soft ${
                       isDragTarget
                         ? 'border-2 border-dashed border-[#0f5964] bg-teal-50/80 ring-4 ring-teal-500/20 scale-[1.01]'
-                        : hasDocs
+                        : isComplete
                         ? 'border-emerald-200 bg-emerald-50/10'
                         : item.required
                         ? 'border-amber-200 bg-amber-50/10'
@@ -1105,7 +1170,7 @@ export function LotDetailPage() {
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="flex items-start gap-3">
                         <div className="mt-0.5">
-                          {hasDocs ? (
+                          {isComplete ? (
                             <CheckCircle2 size={20} className="text-emerald-600" />
                           ) : item.required ? (
                             <FileClock size={20} className="text-amber-500" />
@@ -1135,6 +1200,17 @@ export function LotDetailPage() {
                       </div>
 
                       <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setScannerCategory(item.categories[0]);
+                            setScannerModalOpen(true);
+                          }}
+                          className="flex items-center gap-1.5 rounded-xl bg-teal-50 border border-teal-200 px-3 py-1.5 text-xs font-semibold text-teal-700 hover:bg-teal-600 hover:text-white transition cursor-pointer"
+                          title="Escanear com a câmera do celular"
+                        >
+                          <Camera size={13} /> Escanear
+                        </button>
                         <button
                           type="button"
                           onClick={() => {
@@ -1176,14 +1252,15 @@ export function LotDetailPage() {
                             </div>
 
                             <div className="flex items-center gap-3 shrink-0">
-                              <a
+                              <DocumentStatusSelect document={doc} onUpdated={loadLot} />
+                              <ProtectedFileLink
                                 href={doc.filePath}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="flex items-center gap-1 font-bold text-[#0f5964] hover:underline"
                               >
                                 <Download size={13} /> Baixar
-                              </a>
+                              </ProtectedFileLink>
                               <button
                                 type="button"
                                 onClick={() => handleDeleteDoc(doc.id)}
@@ -1825,144 +1902,293 @@ export function LotDetailPage() {
 
       {/* MODAL: NOVO LANÇAMENTO DE RECEITA DIRETO NO LOTE */}
       {revenueModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#102a33]/60 p-4">
-          <form onSubmit={handleSaveRevenue} className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b pb-3">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#102a33]/60 p-2 sm:p-4">
+          <div className="w-full max-w-lg max-h-[92vh] flex flex-col rounded-2xl bg-white shadow-2xl overflow-hidden border border-slate-200">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b px-5 py-3 bg-slate-50/80 shrink-0">
               <div className="flex items-center gap-2 text-emerald-800">
-                <ArrowUpRight size={20} />
-                <h3 className="text-lg font-bold text-slate-900">Novo Lançamento de Receita (Entrada)</h3>
+                <ArrowUpRight size={18} />
+                <h3 className="text-base font-bold text-slate-900">Novo Lançamento de Receita</h3>
               </div>
               <button
                 type="button"
                 onClick={() => setRevenueModalOpen(false)}
-                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100"
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-200 hover:text-slate-700 transition"
               >
                 <X size={18} />
               </button>
             </div>
 
-            <div className="space-y-3 text-xs">
-              <label className="block font-semibold text-slate-700">
-                Conta de Destino (Onde o dinheiro entrou)
-                <select
-                  required
-                  value={revenueForm.accountId}
-                  onChange={(e) => setRevenueForm({ ...revenueForm, accountId: e.target.value })}
-                  className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
-                >
-                  <option value="">Selecione uma conta...</option>
-                  {accounts.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.name} (Saldo Atual: {money(a.balance)})
-                    </option>
-                  ))}
-                </select>
-              </label>
+            {/* Modal Form */}
+            <form onSubmit={handleSaveRevenue} className="flex flex-col flex-1 overflow-hidden">
+              <div className="overflow-y-auto px-5 py-3.5 space-y-3 text-xs flex-1">
+                {/* Lote Vinculado compacto */}
+                <div className="flex items-center justify-between rounded-xl bg-teal-50/80 border border-teal-200 px-3 py-2 text-xs">
+                  <div>
+                    <span className="font-bold text-slate-900">
+                      Quadra {lot.block?.number || '—'} · Lote {lot.number}
+                    </span>
+                    <span className="text-slate-600 ml-2">
+                      Titular: <strong>{currentOwner?.fullName || 'Sem titular'}</strong>
+                    </span>
+                  </div>
+                  <span className="rounded bg-teal-100 px-1.5 py-0.5 text-[10px] font-bold text-teal-800 uppercase">
+                    Lote Vinculado
+                  </span>
+                </div>
 
-              <div className="rounded-xl bg-teal-50 border border-teal-200 p-3">
-                <span className="text-[10px] font-bold uppercase text-teal-800 tracking-wider">Lote Vinculado</span>
-                <p className="text-sm font-bold text-slate-900 mt-0.5">
-                  Quadra {lot.block?.number || '—'} · Lote {lot.number}
-                </p>
-                <p className="text-xs text-slate-600">
-                  Titular: <strong>{currentOwner?.fullName || 'Sem titular'}</strong>
-                </p>
-              </div>
+                {/* Destino do Lançamento */}
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Destino do Lançamento
+                  </label>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setRevenueForm((prev) => ({
+                          ...prev,
+                          targetType: 'DOWN_PAYMENT',
+                          targetInstallmentId: '',
+                          description: prev.description.includes('Parcela')
+                            ? (currentOwner ? `Entrada Lote ${lot.number} - ${currentOwner.fullName}` : `Entrada Lote ${lot.number}`)
+                            : prev.description,
+                        }))
+                      }
+                      className={`flex flex-col items-center justify-center text-center rounded-xl p-2 border transition text-xs ${
+                        revenueForm.targetType === 'DOWN_PAYMENT'
+                          ? 'border-emerald-600 bg-emerald-50 text-emerald-900 ring-2 ring-emerald-500/20 font-bold'
+                          : 'border-slate-200 bg-slate-50/60 text-slate-600 hover:bg-slate-100'
+                      }`}
+                    >
+                      <span className="flex items-center gap-1">⭐ Entrada / Sinal</span>
+                      <span className="text-[10px] font-normal text-slate-500 mt-0.5">Sem mexer no carnê</span>
+                    </button>
 
-              <label className="block font-semibold text-slate-700">
-                Descrição da Receita
-                <input
-                  required
-                  type="text"
-                  placeholder="Ex: Pagamento de entrada em espécie..."
-                  value={revenueForm.description}
-                  onChange={(e) => setRevenueForm({ ...revenueForm, description: e.target.value })}
-                  className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-[#0f5964]"
-                />
-              </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const firstOpen = openInstallments[0];
+                        setRevenueForm((prev) => ({
+                          ...prev,
+                          targetType: 'INSTALLMENT',
+                          targetInstallmentId: firstOpen?.id || '',
+                          amount: firstOpen ? String(firstOpen.amount - firstOpen.paidAmount) : prev.amount,
+                          description: firstOpen
+                            ? `Pagamento ${firstOpen.installmentNumber === 0 ? 'Entrada' : `Parcela ${firstOpen.installmentNumber}`} - Lote ${lot.number}`
+                            : prev.description,
+                        }));
+                      }}
+                      className={`flex flex-col items-center justify-center text-center rounded-xl p-2 border transition text-xs ${
+                        revenueForm.targetType === 'INSTALLMENT'
+                          ? 'border-emerald-600 bg-emerald-50 text-emerald-900 ring-2 ring-emerald-500/20 font-bold'
+                          : 'border-slate-200 bg-slate-50/60 text-slate-600 hover:bg-slate-100'
+                      }`}
+                    >
+                      <span className="flex items-center gap-1">📄 Baixa Parcela</span>
+                      <span className="text-[10px] font-normal text-slate-500 mt-0.5">Quita parcela aberta</span>
+                    </button>
 
-              <div className="grid grid-cols-2 gap-3">
-                <label className="font-semibold text-slate-700">
-                  Valor Recebido (R$)
-                  <input
-                    required
-                    type="number"
-                    step="0.01"
-                    placeholder="0.00"
-                    value={revenueForm.amount}
-                    onChange={(e) => setRevenueForm({ ...revenueForm, amount: e.target.value })}
-                    className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm font-bold text-slate-900 focus:border-[#0f5964]"
-                  />
-                </label>
-                <label className="font-semibold text-slate-700">
-                  Data do Recebimento
-                  <input
-                    type="date"
-                    value={revenueForm.paymentDate}
-                    onChange={(e) => setRevenueForm({ ...revenueForm, paymentDate: e.target.value })}
-                    className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900"
-                  />
-                </label>
-              </div>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setRevenueForm((prev) => ({
+                          ...prev,
+                          targetType: 'EXTRA',
+                          targetInstallmentId: '',
+                          description: `Recebimento Extra - Lote ${lot.number}`,
+                        }))
+                      }
+                      className={`flex flex-col items-center justify-center text-center rounded-xl p-2 border transition text-xs ${
+                        revenueForm.targetType === 'EXTRA'
+                          ? 'border-emerald-600 bg-emerald-50 text-emerald-900 ring-2 ring-emerald-500/20 font-bold'
+                          : 'border-slate-200 bg-slate-50/60 text-slate-600 hover:bg-slate-100'
+                      }`}
+                    >
+                      <span className="flex items-center gap-1">➕ Avulsa / Extra</span>
+                      <span className="text-[10px] font-normal text-slate-500 mt-0.5">Acordo complementar</span>
+                    </button>
+                  </div>
+                </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <label className="font-semibold text-slate-700">
-                  Forma de Recebimento
+                {revenueForm.targetType === 'DOWN_PAYMENT' && (
+                  <p className="rounded-lg border border-teal-200 bg-teal-50/70 px-2.5 py-1.5 text-[11px] text-teal-800 leading-tight">
+                    💡 <strong>Entrada:</strong> Este valor é registrado como Entrada do lote. As 10 parcelas mensais continuam pendentes.
+                  </p>
+                )}
+
+                {revenueForm.targetType === 'INSTALLMENT' && (
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50/40 p-2.5 space-y-1">
+                    <label className="block font-semibold text-slate-700 text-xs">
+                      Selecione a Parcela para Baixa
+                      <select
+                        required
+                        value={revenueForm.targetInstallmentId}
+                        onChange={(e) => {
+                          const sel = openInstallments.find((i) => i.id === e.target.value);
+                          setRevenueForm((prev) => ({
+                            ...prev,
+                            targetInstallmentId: e.target.value,
+                            amount: sel ? String(sel.amount - sel.paidAmount) : prev.amount,
+                            description: sel
+                              ? `Pagamento ${sel.installmentNumber === 0 ? 'Entrada' : `Parcela ${sel.installmentNumber}`} - Lote ${lot.number}`
+                              : prev.description,
+                          }));
+                        }}
+                        className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-900 focus:border-[#0f5964]"
+                      >
+                        <option value="">Selecione uma parcela...</option>
+                        {openInstallments.map((inst) => (
+                          <option key={inst.id} value={inst.id}>
+                            {inst.installmentNumber === 0 ? 'Entrada' : `Parcela ${inst.installmentNumber}`}
+                            {' - '}Venc: {new Date(inst.dueDate).toLocaleDateString('pt-BR')}
+                            {' - '}Valor: {money(inst.amount)} (Aberto: {money(inst.amount - inst.paidAmount)})
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    {openInstallments.length === 0 && (
+                      <p className="text-[10px] text-amber-700">
+                        Não há parcelas pendentes para este lote.
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* Conta de Destino */}
+                <label className="block font-semibold text-slate-700">
+                  Conta de Destino (Onde o dinheiro entrou)
                   <select
-                    value={revenueForm.paymentMethod}
-                    onChange={(e) => setRevenueForm({ ...revenueForm, paymentMethod: e.target.value })}
-                    className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
+                    required
+                    value={revenueForm.accountId}
+                    onChange={(e) => setRevenueForm({ ...revenueForm, accountId: e.target.value })}
+                    className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-900"
                   >
-                    <option value="PIX">PIX</option>
-                    <option value="BANK_TRANSFER">Transferência Bancária</option>
-                    <option value="CASH">Dinheiro / Espécie</option>
-                    <option value="BOLETO">Boleto Bancário</option>
-                    <option value="CARD">Cartão</option>
+                    <option value="">Selecione uma conta...</option>
+                    {accounts.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.name} (Saldo: {money(a.balance)})
+                      </option>
+                    ))}
                   </select>
                 </label>
-                <label className="font-semibold text-slate-700">
-                  Comprovante (Opcional)
+
+                {/* Descrição */}
+                <label className="block font-semibold text-slate-700">
+                  Descrição da Receita
                   <input
-                    type="file"
-                    accept="image/*,.pdf"
-                    onChange={(e) => {
-                      const f = e.target.files?.[0] || null;
-                      setRevenueForm({ ...revenueForm, file: f });
-                    }}
-                    className="mt-1 w-full rounded-xl border border-slate-300 p-1.5 text-xs text-slate-700 bg-white"
+                    required
+                    type="text"
+                    placeholder="Ex: Pagamento de entrada em espécie..."
+                    value={revenueForm.description}
+                    onChange={(e) => setRevenueForm({ ...revenueForm, description: e.target.value })}
+                    className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-1.5 text-xs text-slate-900 focus:border-[#0f5964]"
+                  />
+                </label>
+
+                {/* Valor e Data */}
+                <div className="grid grid-cols-2 gap-2.5">
+                  <label className="font-semibold text-slate-700">
+                    Valor Recebido (R$)
+                    <input
+                      required
+                      type="number"
+                      step="0.01"
+                      placeholder="0.00"
+                      value={revenueForm.amount}
+                      onChange={(e) => setRevenueForm({ ...revenueForm, amount: e.target.value })}
+                      className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-1.5 text-sm font-bold text-slate-900 focus:border-[#0f5964]"
+                    />
+                  </label>
+                  <label className="font-semibold text-slate-700">
+                    Data do Recebimento
+                    <input
+                      type="date"
+                      value={revenueForm.paymentDate}
+                      onChange={(e) => setRevenueForm({ ...revenueForm, paymentDate: e.target.value })}
+                      className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-1.5 text-xs text-slate-900"
+                    />
+                  </label>
+                </div>
+
+                {/* Forma e Comprovante */}
+                <div className="grid grid-cols-2 gap-2.5">
+                  <label className="font-semibold text-slate-700">
+                    Forma de Recebimento
+                    <select
+                      value={revenueForm.paymentMethod}
+                      onChange={(e) => setRevenueForm({ ...revenueForm, paymentMethod: e.target.value })}
+                      className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-900"
+                    >
+                      <option value="PIX">PIX</option>
+                      <option value="BANK_TRANSFER">Transferência Bancária</option>
+                      <option value="CASH">Dinheiro / Espécie</option>
+                      <option value="BOLETO">Boleto Bancário</option>
+                      <option value="CARD">Cartão</option>
+                    </select>
+                  </label>
+                  <label className="font-semibold text-slate-700">
+                    Comprovante (Opcional)
+                    <input
+                      type="file"
+                      accept="image/*,.pdf"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0] || null;
+                        setRevenueForm({ ...revenueForm, file: f });
+                      }}
+                      className="mt-1 w-full rounded-xl border border-slate-300 p-1 text-[11px] text-slate-700 bg-white"
+                    />
+                  </label>
+                </div>
+
+                {/* Observações */}
+                <label className="block font-semibold text-slate-700">
+                  Observações (Opcional)
+                  <input
+                    type="text"
+                    placeholder="Informações adicionais..."
+                    value={revenueForm.notes}
+                    onChange={(e) => setRevenueForm({ ...revenueForm, notes: e.target.value })}
+                    className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-1.5 text-xs text-slate-900 focus:border-[#0f5964]"
                   />
                 </label>
               </div>
 
-              <label className="block font-semibold text-slate-700">
-                Observações
-                <input
-                  type="text"
-                  placeholder="Informações adicionais..."
-                  value={revenueForm.notes}
-                  onChange={(e) => setRevenueForm({ ...revenueForm, notes: e.target.value })}
-                  className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-[#0f5964]"
-                />
-              </label>
-            </div>
-
-            <div className="flex justify-end gap-2 border-t pt-4">
-              <button
-                type="button"
-                onClick={() => setRevenueModalOpen(false)}
-                className="rounded-xl border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-              >
-                Cancelar
-              </button>
-              <button
-                type="submit"
-                className="rounded-xl bg-emerald-700 px-5 py-2 text-xs font-bold text-white shadow-sm hover:bg-emerald-800"
-              >
-                Salvar Receita
-              </button>
-            </div>
-          </form>
+              {/* Modal Footer - SEMPRE VISÍVEL FIXO NO RODAPÉ */}
+              <div className="flex items-center justify-end gap-2 border-t px-5 py-3 bg-slate-50 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setRevenueModalOpen(false)}
+                  className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 transition"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="rounded-xl bg-emerald-700 px-5 py-2 text-xs font-bold text-white shadow-md hover:bg-emerald-800 transition"
+                >
+                  Salvar Receita
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
+      )}
+
+      {/* SCANNER INTELIGENTE DE DOCUMENTOS */}
+      {lot && (
+        <DocumentScannerModal
+          isOpen={scannerModalOpen}
+          onClose={() => setScannerModalOpen(false)}
+          initialProjectId={lot.project?.id}
+          initialBlockId={lot.block?.id}
+          initialLotId={lot.id}
+          initialPersonId={currentOwner?.id}
+          initialCategory={scannerCategory}
+          onScanComplete={() => {
+            loadLot();
+          }}
+        />
       )}
     </div>
   );

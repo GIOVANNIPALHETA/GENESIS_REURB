@@ -13,20 +13,13 @@ import { ContractsPage } from './pages/ContractsPage';
 import { FinancePage } from './pages/FinancePage';
 import { ServicePage } from './pages/ServicePage';
 import { SettingsPage } from './pages/SettingsPage';
+import { MapPage } from './pages/MapPage';
+import { ScannerPage } from './pages/ScannerPage';
 import { DefaultLayout } from './layouts/DefaultLayout';
 import { useAuth } from './contexts/AuthContext';
 
 function App() {
-  let isAuthenticated = false;
-  try {
-    // prefer context when available
-    // eslint-disable-next-line react-hooks/rules-of-hooks
-    const ctx = useAuth();
-    isAuthenticated = !!ctx.isAuthenticated;
-  } catch {
-    // fallback to storage when context not available yet
-    isAuthenticated = !!localStorage.getItem('token') || !!sessionStorage.getItem('token');
-  }
+  const { isAuthenticated } = useAuth();
 
   return (
     <Routes>
@@ -35,6 +28,8 @@ function App() {
         <Route index element={<DashboardPage />} />
         <Route path="projects" element={<ProjectsPage />} />
         <Route path="projects/:projectId" element={<ProjectDashboardPage />} />
+        <Route path="map" element={<MapPage />} />
+        <Route path="map/:projectId" element={<MapPage />} />
         <Route path="lots" element={<LotsPage />} />
         <Route path="lots/:id" element={<LotDetailPage />} />
         <Route path="lotes/:id" element={<LotDetailPage />} />
@@ -42,6 +37,7 @@ function App() {
         <Route path="users" element={<UsersPage />} />
         <Route path="people" element={<PeoplePage />} />
         <Route path="documents" element={<DocumentsPage />} />
+        <Route path="scanner" element={<ScannerPage />} />
         <Route path="contracts" element={<ContractsPage />} />
         <Route path="finance" element={<FinancePage />} />
         <Route path="service" element={<ServicePage />} />

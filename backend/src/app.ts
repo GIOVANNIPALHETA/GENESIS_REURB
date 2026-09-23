@@ -13,9 +13,11 @@ import personRoutes from './routes/person.routes';
 import contractRoutes from './routes/contract.routes';
 import financeRoutes from './routes/finance.routes';
 import expenseRoutes from './routes/expense.routes';
-import path from 'path';
+import { authenticate } from './middlewares/authMiddleware';
+import { downloadUpload } from './controllers/upload.controller';
 import serviceRoutes from './routes/service.routes';
 import blockRoutes from './routes/block.routes';
+import mapRoutes from './routes/map.routes';
 import { errorHandler } from './middlewares/errorHandler';
 import { notFoundHandler } from './middlewares/notFoundHandler';
 
@@ -24,7 +26,7 @@ const app = express();
 app.use(helmet());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use('/uploads', express.static(path.resolve(process.cwd(), '../uploads')));
+
 // In development allow all origins to avoid CORS issues with Vite dev server ports
 if (process.env.NODE_ENV !== 'production') {
   app.use(cors());
@@ -32,6 +34,9 @@ if (process.env.NODE_ENV !== 'production') {
   const defaultOrigins = ['http://localhost:5173', 'http://localhost:5174'];
   app.use(cors({ origin: process.env.CORS_ALLOWED_ORIGINS?.split(',') || defaultOrigins }));
 }
+
+app.get('/uploads/documents/:fileName', authenticate, downloadUpload);
+app.use('/uploads', authenticate, (_req, res) => { res.status(404).json({ success: false, message: 'Arquivo não encontrado.' }); });
 
 const swaggerOptions = {
   definition: {
@@ -60,6 +65,7 @@ app.use('/api/finance', financeRoutes);
 app.use('/api/expenses', expenseRoutes);
 app.use('/api/service', serviceRoutes);
 app.use('/api/blocks', blockRoutes);
+app.use('/api/map', mapRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

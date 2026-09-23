@@ -8,6 +8,28 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,300..800;1,300..800&display=swap" rel="stylesheet" />
+    <script>
+      window.addEventListener('error', function (e) {
+        var el = document.getElementById('debug-err');
+        if (!el) {
+          el = document.createElement('div');
+          el.id = 'debug-err';
+          el.style = 'position:fixed;top:0;left:0;right:0;background:#dc2626;color:white;padding:16px;z-index:999999;font-family:sans-serif;font-size:13px;word-break:break-all;box-shadow:0 4px 6px rgba(0,0,0,0.3);';
+          document.body.prepend(el);
+        }
+        el.innerHTML += '<strong>Erro JS:</strong> ' + e.message + ' (' + (e.filename || '') + ':' + (e.lineno || '') + ')<br>';
+      });
+      window.addEventListener('unhandledrejection', function (e) {
+        var el = document.getElementById('debug-err');
+        if (!el) {
+          el = document.createElement('div');
+          el.id = 'debug-err';
+          el.style = 'position:fixed;top:0;left:0;right:0;background:#b91c1c;color:white;padding:16px;z-index:999999;font-family:sans-serif;font-size:13px;word-break:break-all;box-shadow:0 4px 6px rgba(0,0,0,0.3);';
+          document.body.prepend(el);
+        }
+        el.innerHTML += '<strong>Erro Promessa:</strong> ' + (e.reason && e.reason.message ? e.reason.message : e.reason) + '<br>';
+      });
+    </script>
   </head>
   <body>
     <div id="root"></div>

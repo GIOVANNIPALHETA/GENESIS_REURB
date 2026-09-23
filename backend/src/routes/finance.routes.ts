@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { Router } from 'express';
 import multer from 'multer';
-import { authenticate } from '../middlewares/authMiddleware';
+import { authenticate, authorize } from '../middlewares/authMiddleware';
 import {
   cancelInstallment,
   cancelPayment,
@@ -43,19 +43,19 @@ const uploadReceipt = multer({
 
 const router = Router();
 router.get('/installments', authenticate, listInstallments);
-router.post('/payments', authenticate, uploadReceipt.single('receipt'), createManualPayment);
-router.post('/installments/:id/payments', authenticate, uploadReceipt.single('receipt'), registerPayment);
-router.put('/payments/:paymentId', authenticate, uploadReceipt.single('receipt'), updatePayment);
-router.delete('/payments/:paymentId', authenticate, cancelPayment);
-router.put('/installments/:id', authenticate, uploadReceipt.single('receipt'), updateInstallment);
-router.delete('/installments/:id', authenticate, deleteInstallment);
+router.post('/payments', authenticate, authorize(['ADMIN', 'GESTOR', 'FINANCEIRO']), uploadReceipt.single('receipt'), createManualPayment);
+router.post('/installments/:id/payments', authenticate, authorize(['ADMIN', 'GESTOR', 'FINANCEIRO']), uploadReceipt.single('receipt'), registerPayment);
+router.put('/payments/:paymentId', authenticate, authorize(['ADMIN', 'GESTOR', 'FINANCEIRO']), uploadReceipt.single('receipt'), updatePayment);
+router.delete('/payments/:paymentId', authenticate, authorize(['ADMIN', 'GESTOR', 'FINANCEIRO']), cancelPayment);
+router.put('/installments/:id', authenticate, authorize(['ADMIN', 'GESTOR', 'FINANCEIRO']), uploadReceipt.single('receipt'), updateInstallment);
+router.delete('/installments/:id', authenticate, authorize(['ADMIN', 'GESTOR', 'FINANCEIRO']), deleteInstallment);
 router.get('/history/:id', authenticate, listHistory);
 router.get('/accounts', authenticate, listAccounts);
 router.get('/expenses', authenticate, listExpenses);
-router.post('/expenses', authenticate, createExpense);
+router.post('/expenses', authenticate, authorize(['ADMIN', 'GESTOR', 'FINANCEIRO']), createExpense);
 
 // Asaas Automation Routes
-router.post('/asaas/sync', authenticate, uploadMemory.single('file'), syncAsaasSpreadsheet);
+router.post('/asaas/sync', authenticate, authorize(['ADMIN', 'GESTOR', 'FINANCEIRO']), uploadMemory.single('file'), syncAsaasSpreadsheet);
 router.post('/asaas/webhook', handleAsaasWebhook);
 
 export default router;

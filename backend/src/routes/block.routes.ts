@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { authenticate } from '../middlewares/authMiddleware';
+import { authenticate, authorize } from '../middlewares/authMiddleware';
 import { createBlock, createBlocksBulk, deleteBlock, listBlocks, updateBlock } from '../controllers/block.controller';
 
 const router = Router();

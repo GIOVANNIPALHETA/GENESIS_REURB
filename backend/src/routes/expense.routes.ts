@@ -2,7 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import { authenticate } from '../middlewares/authMiddleware';
+import { authenticate, authorize } from '../middlewares/authMiddleware';
 import {
   listExpenses,
   createExpense,
@@ -33,29 +33,29 @@ const upload = multer({ dest: uploadDirectory, limits: { fileSize: 25 * 1024 * 1
 
 // Despesas CRUD
 router.get('/', authenticate, listExpenses);
-router.post('/', authenticate, createExpense);
-router.put('/:id', authenticate, updateExpense);
-router.delete('/:id', authenticate, deleteExpense);
+router.post('/', authenticate, authorize(['ADMIN', 'GESTOR', 'FINANCEIRO']), createExpense);
+router.put('/:id', authenticate, authorize(['ADMIN', 'GESTOR', 'FINANCEIRO']), updateExpense);
+router.delete('/:id', authenticate, authorize(['ADMIN', 'GESTOR', 'FINANCEIRO']), deleteExpense);
 
 // Comprovantes e Anexos
-router.post('/:id/attachments', authenticate, upload.single('file'), uploadExpenseAttachment);
-router.delete('/attachments/:attachmentId', authenticate, deleteExpenseAttachment);
+router.post('/:id/attachments', authenticate, authorize(['ADMIN', 'GESTOR', 'FINANCEIRO']), upload.single('file'), uploadExpenseAttachment);
+router.delete('/attachments/:attachmentId', authenticate, authorize(['ADMIN', 'GESTOR', 'FINANCEIRO']), deleteExpenseAttachment);
 
 // OCR / Leitura Inteligente de Comprovante
-router.post('/scan-receipt', authenticate, upload.single('file'), scanExpenseReceipt);
+router.post('/scan-receipt', authenticate, authorize(['ADMIN', 'GESTOR', 'FINANCEIRO']), upload.single('file'), scanExpenseReceipt);
 
 // Tipos de Despesas
 router.get('/types/list', authenticate, listExpenseTypes);
-router.post('/types/list', authenticate, createExpenseType);
-router.put('/types/list/:id', authenticate, updateExpenseType);
-router.delete('/types/list/:id', authenticate, deleteExpenseType);
+router.post('/types/list', authenticate, authorize(['ADMIN', 'GESTOR', 'FINANCEIRO']), createExpenseType);
+router.put('/types/list/:id', authenticate, authorize(['ADMIN', 'GESTOR', 'FINANCEIRO']), updateExpenseType);
+router.delete('/types/list/:id', authenticate, authorize(['ADMIN', 'GESTOR', 'FINANCEIRO']), deleteExpenseType);
 
 // Divisão de Lucros
 router.get('/profit/beneficiaries', authenticate, listProfitBeneficiaries);
-router.post('/profit/beneficiaries', authenticate, createProfitBeneficiary);
-router.put('/profit/beneficiaries/:id', authenticate, updateProfitBeneficiary);
+router.post('/profit/beneficiaries', authenticate, authorize(['ADMIN', 'GESTOR', 'FINANCEIRO']), createProfitBeneficiary);
+router.put('/profit/beneficiaries/:id', authenticate, authorize(['ADMIN', 'GESTOR', 'FINANCEIRO']), updateProfitBeneficiary);
 router.get('/profit/summary', authenticate, getProfitSummary);
-router.post('/profit/withdrawals', authenticate, createProfitWithdrawal);
+router.post('/profit/withdrawals', authenticate, authorize(['ADMIN', 'GESTOR', 'FINANCEIRO']), createProfitWithdrawal);
 
 // Taxas do Asaas
 router.get('/asaas-fees', authenticate, listAsaasFees);

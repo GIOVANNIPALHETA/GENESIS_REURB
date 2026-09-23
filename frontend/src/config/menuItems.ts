@@ -1,5 +1,6 @@
 export const menuItems = [
   { id: 'dashboard', label: 'Painel Principal', path: '/', icon: 'home' },
+  { id: 'map', label: 'Mapa Interativo', path: '/map', icon: 'map' },
   { id: 'projects', label: 'Projetos', path: '/projects', icon: 'layers' },
   { id: 'people', label: 'Pessoas', path: '/people', icon: 'users' },
   { id: 'users', label: 'Usuários', path: '/users', icon: 'users' },
@@ -8,6 +9,7 @@ export const menuItems = [
   { id: 'contracts', label: 'Contratos', path: '/contracts', icon: 'file-text' },
   { id: 'finance', label: 'Financeiro', path: '/finance', icon: 'credit-card' },
   { id: 'documents', label: 'Documentos', path: '/documents', icon: 'folder' },
+  { id: 'scanner', label: 'Scanner Mobile', path: '/scanner', icon: 'camera' },
   { id: 'service', label: 'Atendimentos', path: '/service', icon: 'activity' },
   { id: 'reports', label: 'Relatórios', path: '/reports', icon: 'bar-chart-3' },
 ] as const;

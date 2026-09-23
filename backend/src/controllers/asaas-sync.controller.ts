@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { matchesWebhookToken } from '../utils/security';
 import { parseAsaasWorkbook, processAsaasSync, syncSingleAsaasPayment } from '../services/asaas-sync.service';
 
 export async function syncAsaasSpreadsheet(req: Request, res: Response) {
@@ -45,6 +46,8 @@ export async function syncAsaasSpreadsheet(req: Request, res: Response) {
 }
 
 export async function handleAsaasWebhook(req: Request, res: Response) {
+  if (!process.env.ASAAS_WEBHOOK_TOKEN) return res.status(503).json({ success: false, message: 'Webhook não configurado.' });
+  if (!matchesWebhookToken(req.get('asaas-access-token'))) return res.status(401).json({ success: false, message: 'Origem não autorizada.' });
   try {
     const { event, payment } = req.body;
 

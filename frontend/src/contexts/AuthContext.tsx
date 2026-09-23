@@ -17,7 +17,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [token, setToken] = useState<string | null>(() => localStorage.getItem('token') || sessionStorage.getItem('token'));
   const [user, setUser] = useState<User>(() => {
     const raw = localStorage.getItem('user') || sessionStorage.getItem('user');
-    return raw ? JSON.parse(raw) : null;
+    try { return raw ? JSON.parse(raw) : null; } catch { return null; }
   });
 
   useEffect(() => {
@@ -51,6 +51,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   function login(payload: { token: string; refreshToken?: string; user?: User }, remember = true) {
+    for (const oldStorage of [localStorage, sessionStorage]) {
+      for (const key of ['token', 'refreshToken', 'user']) oldStorage.removeItem(key);
+    }
     const storage = remember ? localStorage : sessionStorage;
     storage.setItem('token', payload.token);
     if (payload.refreshToken) storage.setItem('refreshToken', payload.refreshToken);

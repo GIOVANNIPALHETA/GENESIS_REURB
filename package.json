@@ -9,7 +9,8 @@
     "build:backend": "npm run build --prefix backend",
     "build:frontend": "npm run build --prefix frontend",
     "dev:backend": "npm run dev --prefix backend",
-    "dev:frontend": "npm run dev --prefix frontend"
+    "dev:frontend": "npm run dev --prefix frontend",
+    "test": "npm test --prefix backend"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"

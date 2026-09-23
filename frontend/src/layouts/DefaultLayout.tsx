@@ -16,6 +16,8 @@ import {
   X,
   Plus,
   MapPin,
+  Map,
+  Camera,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -36,6 +38,7 @@ const NAV_GROUPS: NavGroup[] = [
     title: 'OPERAÇÃO',
     items: [
       { id: 'dashboard', label: 'Painel principal', path: '/', icon: LayoutDashboard },
+      { id: 'map', label: 'Mapa Interativo 2D', path: '/map', icon: Map },
       { id: 'projects', label: 'Projetos', path: '/projects', icon: Layers },
       { id: 'people', label: 'Pessoas', path: '/people', icon: Users },
       { id: 'lots', label: 'Quadras e lotes', path: '/lots', icon: MapPin },
@@ -48,6 +51,7 @@ const NAV_GROUPS: NavGroup[] = [
       { id: 'finance', label: 'Financeiro', path: '/finance', icon: CreditCard },
       { id: 'contracts', label: 'Contratos', path: '/contracts', icon: FileText },
       { id: 'documents', label: 'Documentos', path: '/documents', icon: Folder },
+      { id: 'scanner', label: 'Scanner Mobile', path: '/scanner', icon: Camera },
       { id: 'reports', label: 'Relatórios', path: '/reports', icon: BarChart3 },
       { id: 'service', label: 'Atendimentos', path: '/service', icon: Activity },
     ],
@@ -189,6 +193,7 @@ export function DefaultLayout() {
     if (p.startsWith('/finance')) return 'Gestão / Financeiro';
     if (p.startsWith('/contracts')) return 'Gestão / Contratos';
     if (p.startsWith('/documents')) return 'Gestão / Documentos';
+    if (p.startsWith('/scanner')) return 'Gestão / Scanner Mobile';
     if (p.startsWith('/reports')) return 'Gestão / Relatórios';
     if (p.startsWith('/service')) return 'Gestão / Atendimentos';
     if (p.startsWith('/settings')) return 'Sistema / Configurações';

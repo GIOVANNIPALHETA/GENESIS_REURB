@@ -5,7 +5,10 @@ import bcrypt from 'bcryptjs';
 const prisma = new PrismaClient();
 
 async function main() {
-  const passwordHash = await bcrypt.hash('Genesis@123', 10);
+  const existingAdmin = await prisma.user.findUnique({ where: { email: 'admin@genesisreurb.com.br' } });
+  const initialPassword = process.env.ADMIN_INITIAL_PASSWORD;
+  if (!existingAdmin && (!initialPassword || initialPassword.length < 12)) throw new Error('Configure ADMIN_INITIAL_PASSWORD com pelo menos 12 caracteres antes de criar o administrador.');
+  const passwordHash = existingAdmin?.passwordHash || await bcrypt.hash(initialPassword!, 12);
 
   for (const account of [
     { id: 'account-cash', name: 'Dinheiro', type: FinancialAccountType.CASH },
@@ -17,7 +20,7 @@ async function main() {
 
   await prisma.user.upsert({
     where: { email: 'admin@genesisreurb.com.br' },
-    update: { name: 'Administrador', passwordHash, role: UserRole.ADMIN, active: true },
+    update: {},
     create: {
       name: 'Administrador',
       email: 'admin@genesisreurb.com.br',
