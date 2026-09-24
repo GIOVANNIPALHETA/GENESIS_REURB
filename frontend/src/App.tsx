@@ -15,6 +15,7 @@ import { ServicePage } from './pages/ServicePage';
 import { SettingsPage } from './pages/SettingsPage';
 import { MapPage } from './pages/MapPage';
 import { ScannerPage } from './pages/ScannerPage';
+import { ReportsPage } from './pages/ReportsPage';
 import { DefaultLayout } from './layouts/DefaultLayout';
 import { useAuth } from './contexts/AuthContext';
 
@@ -38,6 +39,7 @@ function App() {
         <Route path="people" element={<PeoplePage />} />
         <Route path="documents" element={<DocumentsPage />} />
         <Route path="scanner" element={<ScannerPage />} />
+        <Route path="reports" element={<ReportsPage />} />
         <Route path="contracts" element={<ContractsPage />} />
         <Route path="finance" element={<FinancePage />} />
         <Route path="service" element={<ServicePage />} />
