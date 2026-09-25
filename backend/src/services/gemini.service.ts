@@ -103,7 +103,7 @@ export const getFinancialSummaryDeclaration: FunctionDeclaration = {
 
 export const searchPersonDeclaration: FunctionDeclaration = {
   name: 'searchPerson',
-  description: 'Localiza titulares ou beneficiários cadastrados por nome ou CPF, retornando seus lotes vinculados, telefones e contratos.',
+  description: 'Localiza titulares ou beneficiários cadastrados por nome ou CPF, retornando seus lotes vinculados, telefones, contratos assinados e situação financeira detalhada (parcelas pagas, parcelas a vencer, parcelas em atraso e saldos devedores).',
   parameters: {
     type: Type.OBJECT,
     properties: {
@@ -629,6 +629,9 @@ async function executeGetFinancialSummary(args: any) {
 
 async function executeSearchPerson(args: any) {
   const query = String(args.query || '').trim();
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
   const people = await prisma.person.findMany({
     where: {
       OR: [
@@ -649,6 +652,13 @@ async function executeSearchPerson(args: any) {
           lot: {
             include: { block: true, project: true },
           },
+          negotiations: {
+            include: {
+              installments: {
+                orderBy: { installmentNumber: 'asc' },
+              },
+            },
+          },
         },
       },
     },
@@ -657,24 +667,67 @@ async function executeSearchPerson(args: any) {
 
   return {
     totalEncontrados: people.length,
-    resultados: people.map((p) => ({
-      id: p.id,
-      nome: p.fullName,
-      cpf: p.cpf || 'Não cadastrado',
-      telefone: p.phone || 'Não informado',
-      lotesVinculados: p.occupancies.map((o) => ({
-        projeto: o.lot.project.name,
-        quadra: o.lot.block.number,
-        lote: o.lot.number,
-      })),
-      contratos: p.contracts.map((c) => ({
-        numero: c.contractNumber,
-        assinado: c.signed,
-        projeto: c.lot.project.name,
-        quadra: c.lot.block.number,
-        lote: c.lot.number,
-      })),
-    })),
+    resultados: people.map((p) => {
+      const contractSummaries = p.contracts.map((c) => {
+        const installments = c.negotiations?.flatMap((n) => n.installments || []) || [];
+        const overdueList: any[] = [];
+        let totalDue = 0;
+        let totalPaid = 0;
+        let totalOverdue = 0;
+
+        for (const inst of installments) {
+          totalDue += inst.amount;
+          totalPaid += inst.paidAmount;
+          const remaining = Math.max(0, inst.amount - inst.paidAmount);
+          const due = new Date(inst.dueDate);
+          due.setHours(0, 0, 0, 0);
+
+          if (remaining > 0 && (inst.status === 'OVERDUE' || due.getTime() < today.getTime())) {
+            const diffDays = Math.max(1, Math.floor((today.getTime() - due.getTime()) / (1000 * 60 * 60 * 24)));
+            totalOverdue += remaining;
+            overdueList.push({
+              numeroParcela: inst.installmentNumber,
+              vencimento: inst.dueDate.toISOString().slice(0, 10),
+              valor: inst.amount,
+              valorPago: inst.paidAmount,
+              saldoVencido: remaining,
+              diasAtraso: diffDays,
+              status: inst.status,
+            });
+          }
+        }
+
+        return {
+          numero: c.contractNumber,
+          assinado: c.signed,
+          statusContrato: c.status,
+          projeto: c.lot.project.name,
+          quadra: c.lot.block.number,
+          lote: c.lot.number,
+          totalParcelas: installments.length,
+          totalValorContrato: Number(totalDue.toFixed(2)),
+          totalValorPago: Number(totalPaid.toFixed(2)),
+          saldoDevedorTotal: Number(Math.max(0, totalDue - totalPaid).toFixed(2)),
+          saldoVencidoAtrasado: Number(totalOverdue.toFixed(2)),
+          temParcelasEmAtraso: overdueList.length > 0,
+          quantidadeParcelasEmAtraso: overdueList.length,
+          parcelasEmAtraso: overdueList,
+        };
+      });
+
+      return {
+        id: p.id,
+        nome: p.fullName,
+        cpf: p.cpf || 'Não cadastrado',
+        telefone: p.phone || 'Não informado',
+        lotesVinculados: p.occupancies.map((o) => ({
+          projeto: o.lot.project.name,
+          quadra: o.lot.block.number,
+          lote: o.lot.number,
+        })),
+        contratos: contractSummaries,
+      };
+    }),
   };
 }
 
@@ -785,11 +838,7 @@ async function executeUploadLotDocument(
   // Match or create DocumentType if needed
   const category = args.documentCategory || 'Documentos Complementares';
 
-  let finalUserId: string | null = null;
-  if (userId) {
-    const existing = await prisma.user.findUnique({ where: { id: userId } });
-    if (existing) finalUserId = existing.id;
-  }
+  let finalUserId = userId;
   if (!finalUserId) {
     const adminUser = await prisma.user.findFirst({ where: { active: true } });
     finalUserId = adminUser?.id || '';
@@ -833,30 +882,23 @@ async function executeUploadLotDocument(
 
 // Router for tool calls
 async function dispatchToolCall(toolName: string, args: any, uploadedFile?: any, userId?: string) {
-  try {
-    switch (toolName) {
-      case 'uploadLotDocument':
-        return await executeUploadLotDocument(args, uploadedFile, userId);
-      case 'getProjectSummary':
-        return await executeGetProjectSummary(args);
-      case 'searchLots':
-        return await executeSearchLots(args);
-      case 'getLotDetails':
-        return await executeGetLotDetails(args);
-      case 'getFinancialSummary':
-        return await executeGetFinancialSummary(args);
-      case 'searchPerson':
-        return await executeSearchPerson(args);
-      case 'getDocumentChecklist':
-        return await executeGetDocumentChecklist(args);
-      default:
-        return { error: `Ferramenta desconhecida: ${toolName}` };
-    }
-  } catch (err: any) {
-    console.error(`[Gemini dispatchToolCall] Erro ao executar ${toolName}:`, err?.message || err);
-    return {
-      error: `Erro ao executar ${toolName}: ${err?.message || 'Falha interna'}`,
-    };
+  switch (toolName) {
+    case 'uploadLotDocument':
+      return await executeUploadLotDocument(args, uploadedFile, userId);
+    case 'getProjectSummary':
+      return await executeGetProjectSummary(args);
+    case 'searchLots':
+      return await executeSearchLots(args);
+    case 'getLotDetails':
+      return await executeGetLotDetails(args);
+    case 'getFinancialSummary':
+      return await executeGetFinancialSummary(args);
+    case 'searchPerson':
+      return await executeSearchPerson(args);
+    case 'getDocumentChecklist':
+      return await executeGetDocumentChecklist(args);
+    default:
+      return { error: `Ferramenta desconhecida: ${toolName}` };
   }
 }
 
@@ -872,9 +914,16 @@ Sua missão é responder a dúvidas dos usuários e operadores do sistema, prest
 Diretrizes estritas:
 1. **Upload e Vinculação de Documentos**: Se o usuário enviar um arquivo anexado e solicitar upload/vinculação (ex: "Esse documento é de Fulano da Qd XX Lt 11 faça upload"), você DEVE extrair a quadra, o lote, o titular e chamar a ferramenta "uploadLotDocument". Em seguida, confirme o sucesso com detalhes formatados em tópicos (Lote, Quadra, Projeto, Titular, Status no Checklist).
 2. **Consulta aos Dados do Sistema**: Quando o usuário perguntar sobre lotes, quadras, contratos, inadimplência, titulares, pessoas ou financeiro, você DEVE utilizar as ferramentas disponíveis (function calling) para consultar os dados reais. NUNCA invente números, lotes ou informações cadastrais.
-3. **Lei 13.465/2017**: Se o usuário tiver dúvidas jurídicas ou processuais sobre REURB (ex: diferença entre REURB-S e REURB-E, CRF - Certidão de Regularização Fundiária, termo de adesão, memorial descritivo, notificação de confrontantes, registro em cartório), fundamente sua resposta com precisão na legislação.
-4. **Formatação Elegante**: Responda sempre em português do Brasil, de forma clara, amigável e profissional. Use tabelas Markdown para listas de lotes/valores, tópicos numerados ou com marcadores, e destaque valores em negrito.
-5. **Segurança**: Nunca exponha senhas ou dados confidenciais de credenciais.
+3. **Respostas Ricas e Detalhadas (NUNCA responda apenas 'Operação realizada')**:
+   - Ao localizar um titular ou pessoa, apresente: Nome completo, CPF, telefones de contato, Projeto, Quadra, Lote e Contratos vinculados.
+   - Ao consultar parcelas, financeiro, dívida ou inadimplência de uma pessoa ou lote (ou quando o usuário digitar apenas "FINANCEIRO" ou "PARCELAS"):
+     * Verifique no histórico qual pessoa ou lote está sendo discutido.
+     * Apresente um resumo claro: total de parcelas, parcelas pagas, parcelas a vencer e valor total.
+     * SE HOUVER parcelas vencidas em atraso, liste detalhadamente cada uma em tabela ou tópicos: Número da parcela, Data de Vencimento, Valor Original, Valor já Pago, Saldo Devedor em Aberto e Dias de Atraso.
+     * Se estiver tudo em dia ou quitado, informe isso expressamente com clareza.
+4. **Lei 13.465/2017**: Se o usuário tiver dúvidas jurídicas ou processuais sobre REURB (ex: diferença entre REURB-S e REURB-E, CRF - Certidão de Regularização Fundiária, termo de adesão, memorial descritivo, notificação de confrontantes, registro em cartório), fundamente sua resposta com precisão na legislação.
+5. **Formatação Elegante**: Responda sempre em português do Brasil, de forma clara, amigável e profissional. Use tabelas Markdown para listas de lotes/valores, tópicos numerados ou com marcadores, e destaque valores em negrito.
+6. **Segurança**: Nunca exponha senhas ou dados confidenciais de credenciais.
 `;
 
 export async function processGeminiChatMessage(
@@ -932,76 +981,99 @@ O usuário enviou este arquivo anexo. Se ele solicitar upload, cadastro ou vincu
 
   for (const modelName of modelsToTry) {
     try {
-      // Step 1: Initial call with function declarations
-      const response = await ai.models.generateContent({
-        model: modelName,
-        contents,
-        config: {
-          systemInstruction: SYSTEM_INSTRUCTION,
-          tools: [{ functionDeclarations: ALL_GEMINI_TOOLS }],
-        },
-      });
+      let turnCount = 0;
+      const MAX_TURNS = 5;
 
-      // Check if model requested a tool call
-      const functionCalls = response.functionCalls;
+      while (turnCount < MAX_TURNS) {
+        turnCount++;
 
-      if (functionCalls && functionCalls.length > 0) {
-        // Execute tool calls
-        const functionResponseParts: any[] = [];
-
-        // Save model's function call turn
-        contents.push(response.candidates?.[0]?.content || {
-          role: 'model',
-          parts: functionCalls.map((fc) => ({ functionCall: fc })),
-        });
-
-        for (const call of functionCalls) {
-          const toolName = call.name || '';
-          executedToolNames.push(toolName);
-          const toolResult = await dispatchToolCall(toolName, call.args || {}, uploadedFile, userId);
-
-          functionResponseParts.push({
-            functionResponse: {
-              name: toolName,
-              response: toolResult,
-              id: (call as any).id,
-            },
-          });
-        }
-
-        // Add function execution results to contents (role 'user' required by Google GenAI SDK for functionResponse)
-        contents.push({
-          role: 'user',
-          parts: functionResponseParts,
-        });
-
-        // Step 2: Final response with tool results included
-        const secondResponse = await ai.models.generateContent({
+        const response = await ai.models.generateContent({
           model: modelName,
           contents,
           config: {
             systemInstruction: SYSTEM_INSTRUCTION,
+            tools: [{ functionDeclarations: ALL_GEMINI_TOOLS }],
           },
         });
 
-        return {
-          text: secondResponse.text || 'Operação realizada com sucesso.',
-          toolCallsExecuted: executedToolNames,
-          apiKeyConfigured: true,
-          modelUsed: modelName,
-        };
+        const functionCalls = response.functionCalls;
+
+        if (functionCalls && functionCalls.length > 0) {
+          // Push model candidate content with function call parts
+          contents.push(
+            response.candidates?.[0]?.content || {
+              role: 'model',
+              parts: functionCalls.map((fc) => ({ functionCall: fc })),
+            }
+          );
+
+          const functionResponseParts: any[] = [];
+          for (const call of functionCalls) {
+            const toolName = call.name || '';
+            executedToolNames.push(toolName);
+            const toolResult = await dispatchToolCall(toolName, call.args || {}, uploadedFile, userId);
+
+            functionResponseParts.push({
+              functionResponse: {
+                name: toolName,
+                response: toolResult,
+                id: (call as any).id,
+              },
+            });
+          }
+
+          // Add function execution results to contents (role 'user' required by Google GenAI SDK)
+          contents.push({
+            role: 'user',
+            parts: functionResponseParts,
+          });
+
+          // Loop continues so Gemini processes tool results and either calls next tool or outputs final text
+          continue;
+        }
+
+        // If no more function calls, we have the model's text response
+        let text = response.text || '';
+
+        // Fallback: extract from candidate parts if text getter is empty
+        if (!text && response.candidates?.[0]?.content?.parts) {
+          const parts = response.candidates[0].content.parts;
+          const textItems = parts
+            .filter((p: any) => typeof p.text === 'string' && p.text.trim())
+            .map((p: any) => p.text);
+          if (textItems.length > 0) {
+            text = textItems.join('\n');
+          }
+        }
+
+        if (text) {
+          return {
+            text,
+            toolCallsExecuted: Array.from(new Set(executedToolNames)),
+            apiKeyConfigured: true,
+            modelUsed: modelName,
+          };
+        }
       }
 
-      // No tool calls needed, direct answer
+      // If loop finished after MAX_TURNS without text, do a final call forcing text response
+      const finalPrompt = await ai.models.generateContent({
+        model: modelName,
+        contents,
+        config: {
+          systemInstruction: SYSTEM_INSTRUCTION + '\n\nIMPORTANTE: Forneça agora a resposta final completa, detalhada e formatada ao usuário com base nos dados obtidos das ferramentas.',
+        },
+      });
+
       return {
-        text: response.text || 'Olá, como posso ajudar com o Gênesis REURB?',
-        toolCallsExecuted: [],
+        text: finalPrompt.text || 'Consulta realizada com sucesso.',
+        toolCallsExecuted: Array.from(new Set(executedToolNames)),
         apiKeyConfigured: true,
         modelUsed: modelName,
       };
     } catch (err: any) {
       console.warn(`[Gemini Assistant] Falha no modelo ${modelName}:`, err?.message || err);
-      // If error is about model not found, loop to next fallback model
+      // If error is about model not found or unavailable, loop to next fallback model
       continue;
     }
   }
