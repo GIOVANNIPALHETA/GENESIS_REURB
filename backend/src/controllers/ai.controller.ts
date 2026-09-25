@@ -3,16 +3,34 @@ import { processGeminiChatMessage } from '../services/gemini.service';
 
 export async function chatHandler(req: Request, res: Response) {
   try {
-    const { message, history } = req.body;
+    let { message, history } = req.body;
 
-    if (!message || typeof message !== 'string' || !message.trim()) {
-      return res.status(400).json({
-        success: false,
-        message: 'A mensagem do usuário é obrigatória.',
-      });
+    if (typeof history === 'string') {
+      try {
+        history = JSON.parse(history);
+      } catch {
+        history = [];
+      }
     }
 
-    const result = await processGeminiChatMessage(message.trim(), Array.isArray(history) ? history : []);
+    if (!message || typeof message !== 'string' || !message.trim()) {
+      if (req.file) {
+        message = 'Fiz o upload deste documento. Por favor, analise e vincule ao lote correspondente se solicitado.';
+      } else {
+        return res.status(400).json({
+          success: false,
+          message: 'A mensagem do usuário é obrigatória.',
+        });
+      }
+    }
+
+    const userId = req.user?.id;
+    const result = await processGeminiChatMessage(
+      message.trim(),
+      Array.isArray(history) ? history : [],
+      req.file,
+      userId
+    );
 
     return res.json({
       success: true,
@@ -36,6 +54,7 @@ export async function statusHandler(_req: Request, res: Response) {
       model: process.env.GEMINI_MODEL || 'gemini-3.8-flash',
       provider: 'Google Gemini',
       features: [
+        'Upload e vinculação automática de documentos via chat',
         'Resumo de projetos (Vila Nova, Tatão, Dardanelos)',
         'Consulta de lotes e quadras',
         'Inadimplência e parcelas em atraso',

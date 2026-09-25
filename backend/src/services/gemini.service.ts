@@ -1,5 +1,6 @@
 import { GoogleGenAI, Type, FunctionDeclaration } from '@google/genai';
 import { prisma } from '../prisma/client';
+import { syncDocumentAdded } from './googleDriveSync.service';
 
 export interface ChatMessage {
   role: 'user' | 'model' | 'assistant';
@@ -137,6 +138,41 @@ export const getDocumentChecklistDeclaration: FunctionDeclaration = {
   },
 };
 
+export const uploadLotDocumentDeclaration: FunctionDeclaration = {
+  name: 'uploadLotDocument',
+  description: 'Salva e vincula oficialmente o arquivo anexado pelo usuário ao Lote e Quadra informados no sistema Gênesis REURB, atualizando o checklist documental da família.',
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+      blockNumber: {
+        type: Type.STRING,
+        description: 'Número ou identificador da quadra mencionada pelo usuário (ex: "XX", "01", "1", "4")',
+      },
+      lotNumber: {
+        type: Type.STRING,
+        description: 'Número do lote mencionado pelo usuário (ex: "11", "01", "1A", "15")',
+      },
+      projectName: {
+        type: Type.STRING,
+        description: 'Nome aproximado do projeto ou loteamento se especificado (ex: "Vila Nova", "Tatão", "Dardanelos")',
+      },
+      personName: {
+        type: Type.STRING,
+        description: 'Nome do titular ou pessoa a quem o documento pertence (ex: "Fulano de Tal")',
+      },
+      documentCategory: {
+        type: Type.STRING,
+        description: 'Categoria do documento (ex: "RG/CPF ou CNH do Titular", "Comprovante de Residência", "Certidão de Casamento ou Nascimento", "Contrato de Compra e Venda do Lote", "Documentos Complementares")',
+      },
+      notes: {
+        type: Type.STRING,
+        description: 'Observação cadastral sobre o documento',
+      },
+    },
+    required: ['blockNumber', 'lotNumber'],
+  },
+};
+
 const ALL_GEMINI_TOOLS = [
   getProjectSummaryDeclaration,
   searchLotsDeclaration,
@@ -144,6 +180,7 @@ const ALL_GEMINI_TOOLS = [
   getFinancialSummaryDeclaration,
   searchPersonDeclaration,
   getDocumentChecklistDeclaration,
+  uploadLotDocumentDeclaration,
 ];
 
 // ============================================================================
@@ -666,9 +703,120 @@ async function executeGetDocumentChecklist(args: any) {
   };
 }
 
+async function executeUploadLotDocument(
+  args: any,
+  uploadedFile?: any,
+  userId?: string
+) {
+  if (!uploadedFile) {
+    return {
+      success: false,
+      message: 'Nenhum arquivo físico foi anexado nesta mensagem para upload. Solicite ao usuário que anexe o arquivo no chat (clique no ícone de clipe ou arraste o arquivo).',
+    };
+  }
+
+  const blockNum = String(args.blockNumber || '').trim();
+  const lotNum = String(args.lotNumber || '').trim();
+  const projQuery = args.projectName?.trim();
+  const personName = args.personName?.trim();
+
+  // Find lot by number and block
+  const lot = await prisma.lot.findFirst({
+    where: {
+      number: { equals: lotNum, mode: 'insensitive' },
+      block: { number: { equals: blockNum, mode: 'insensitive' } },
+      ...(projQuery ? { project: { name: { contains: projQuery, mode: 'insensitive' } } } : {}),
+      active: true,
+    },
+    include: {
+      project: { select: { id: true, name: true } },
+      block: { select: { id: true, number: true } },
+      occupancies: {
+        include: { person: true },
+      },
+      contracts: {
+        include: { person: true },
+      },
+    },
+  });
+
+  if (!lot) {
+    return {
+      success: false,
+      message: `Lote ${lotNum} na Quadra ${blockNum} não foi encontrado no sistema. Por favor, confirme o número da quadra e do lote cadastrados.`,
+    };
+  }
+
+  // Determine Person / Titular
+  let personId = lot.occupancies?.[0]?.personId || lot.contracts?.[0]?.personId || null;
+  let personFullName = lot.occupancies?.[0]?.person?.fullName || lot.contracts?.[0]?.person?.fullName || personName || null;
+
+  if (personName && !personId) {
+    const foundPerson = await prisma.person.findFirst({
+      where: { fullName: { contains: personName, mode: 'insensitive' } },
+    });
+    if (foundPerson) {
+      personId = foundPerson.id;
+      personFullName = foundPerson.fullName;
+    } else {
+      const newPerson = await prisma.person.create({
+        data: { fullName: personName },
+      });
+      personId = newPerson.id;
+      personFullName = newPerson.fullName;
+    }
+  }
+
+  // Match or create DocumentType if needed
+  const category = args.documentCategory || 'Documentos Complementares';
+
+  let finalUserId = userId;
+  if (!finalUserId) {
+    const adminUser = await prisma.user.findFirst({ where: { active: true } });
+    finalUserId = adminUser?.id || '';
+  }
+
+  // Create document record
+  const doc = await prisma.document.create({
+    data: {
+      lotId: lot.id,
+      personId: personId,
+      category: category,
+      originalName: uploadedFile.originalname,
+      fileName: uploadedFile.filename,
+      filePath: uploadedFile.path,
+      mimeType: uploadedFile.mimetype,
+      size: uploadedFile.size,
+      status: 'UNDER_REVIEW',
+      uploadedById: finalUserId,
+      notes: args.notes || 'Enviado e vinculado via Assistente Gênesis IA',
+    },
+  });
+
+  // Sync to Drive
+  syncDocumentAdded(doc.id).catch((err) =>
+    console.error('[Gemini AI Upload] Erro ao sincronizar com Google Drive:', err)
+  );
+
+  return {
+    success: true,
+    documentId: doc.id,
+    arquivo: uploadedFile.originalname,
+    categoria: category,
+    quadra: lot.block.number,
+    lote: lot.number,
+    projeto: lot.project.name,
+    titular: personFullName || 'Titular do lote',
+    situacao: 'EM ANÁLISE (UNDER_REVIEW)',
+    mensagem: `Arquivo ${uploadedFile.originalname} salvo com sucesso e vinculado ao Lote ${lot.number}, Quadra ${lot.block.number} (${lot.project.name}), titular ${personFullName || 'do lote'}. O checklist documental foi atualizado.`,
+  };
+}
+
 // Router for tool calls
-async function dispatchToolCall(toolName: string, args: any) {
+async function dispatchToolCall(toolName: string, args: any, uploadedFile?: any, userId?: string) {
   switch (toolName) {
+    case 'uploadLotDocument':
+      return await executeUploadLotDocument(args, uploadedFile, userId);
     case 'getProjectSummary':
       return await executeGetProjectSummary(args);
     case 'searchLots':
@@ -693,16 +841,22 @@ async function dispatchToolCall(toolName: string, args: any) {
 const SYSTEM_INSTRUCTION = `
 Você é o Assistente Oficial com Inteligência Artificial do **Gênesis REURB**, especialista técnico e jurídico em Regularização Fundiária Urbana (Lei Federal nº 13.465/2017 e Decreto nº 9.310/2018), loteamentos (Vila Nova, Tatão, Dardanelos, etc.) e na gestão da plataforma.
 
-Sua missão é responder a dúvidas dos usuários e operadores do sistema, prestando orientações claras e consultando os dados reais do banco de dados quando necessário.
+Sua missão é responder a dúvidas dos usuários e operadores do sistema, prestando orientações claras, consultando os dados reais do banco de dados e realizando ações autorizadas (como upload e vinculação de documentos a lotes).
 
 Diretrizes estritas:
-1. **Consulta aos Dados do Sistema**: Quando o usuário perguntar sobre lotes, quadras, contratos, inadimplência, titulares, pessoas ou financeiro, você DEVE utilizar as ferramentas disponíveis (function calling) para consultar os dados reais. NUNCA invente números, lotes ou informações cadastrais.
-2. **Lei 13.465/2017**: Se o usuário tiver dúvidas jurídicas ou processuais sobre REURB (ex: diferença entre REURB-S e REURB-E, CRF - Certidão de Regularização Fundiária, termo de adesão, memorial descritivo, notificação de confrontantes, registro em cartório), fundamente sua resposta com precisão na legislação.
-3. **Formatação Elegante**: Responda sempre em português do Brasil, de forma clara, amigável e profissional. Use tabelas Markdown para listas de lotes/valores, tópicos numerados ou com marcadores, e destaque valores em negrito.
-4. **Segurança**: Nunca exponha senhas ou dados confidenciais de credenciais.
+1. **Upload e Vinculação de Documentos**: Se o usuário enviar um arquivo anexado e solicitar upload/vinculação (ex: "Esse documento é de Fulano da Qd XX Lt 11 faça upload"), você DEVE extrair a quadra, o lote, o titular e chamar a ferramenta "uploadLotDocument". Em seguida, confirme o sucesso com detalhes formatados em tópicos (Lote, Quadra, Projeto, Titular, Status no Checklist).
+2. **Consulta aos Dados do Sistema**: Quando o usuário perguntar sobre lotes, quadras, contratos, inadimplência, titulares, pessoas ou financeiro, você DEVE utilizar as ferramentas disponíveis (function calling) para consultar os dados reais. NUNCA invente números, lotes ou informações cadastrais.
+3. **Lei 13.465/2017**: Se o usuário tiver dúvidas jurídicas ou processuais sobre REURB (ex: diferença entre REURB-S e REURB-E, CRF - Certidão de Regularização Fundiária, termo de adesão, memorial descritivo, notificação de confrontantes, registro em cartório), fundamente sua resposta com precisão na legislação.
+4. **Formatação Elegante**: Responda sempre em português do Brasil, de forma clara, amigável e profissional. Use tabelas Markdown para listas de lotes/valores, tópicos numerados ou com marcadores, e destaque valores em negrito.
+5. **Segurança**: Nunca exponha senhas ou dados confidenciais de credenciais.
 `;
 
-export async function processGeminiChatMessage(userMessage: string, history: ChatMessage[] = []) {
+export async function processGeminiChatMessage(
+  userMessage: string,
+  history: ChatMessage[] = [],
+  uploadedFile?: any,
+  userId?: string
+) {
   const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
 
   if (!apiKey) {
@@ -734,10 +888,19 @@ export async function processGeminiChatMessage(userMessage: string, history: Cha
     });
   }
 
-  // Add current message
+  // Add current message with file context if attached
+  let promptText = userMessage;
+  if (uploadedFile) {
+    promptText += `\n\n[SISTEMA - ARQUIVO ANEXADO PELO USUÁRIO]:
+- Nome original: "${uploadedFile.originalname}"
+- Tamanho: ${Math.round(uploadedFile.size / 1024)} KB
+- Tipo MIME: ${uploadedFile.mimetype}
+O usuário enviou este arquivo anexo. Se ele solicitar upload, cadastro ou vinculação a uma quadra/lote/titular, acione a ferramenta "uploadLotDocument".`;
+  }
+
   contents.push({
     role: 'user',
-    parts: [{ text: userMessage }],
+    parts: [{ text: promptText }],
   });
 
   for (const modelName of modelsToTry) {
@@ -768,7 +931,7 @@ export async function processGeminiChatMessage(userMessage: string, history: Cha
         for (const call of functionCalls) {
           const toolName = call.name || '';
           executedToolNames.push(toolName);
-          const toolResult = await dispatchToolCall(toolName, call.args || {});
+          const toolResult = await dispatchToolCall(toolName, call.args || {}, uploadedFile, userId);
 
           functionResponseParts.push({
             functionResponse: {
@@ -794,7 +957,7 @@ export async function processGeminiChatMessage(userMessage: string, history: Cha
         });
 
         return {
-          text: secondResponse.text || 'Consulta concluída com sucesso.',
+          text: secondResponse.text || 'Operação realizada com sucesso.',
           toolCallsExecuted: executedToolNames,
           apiKeyConfigured: true,
           modelUsed: modelName,

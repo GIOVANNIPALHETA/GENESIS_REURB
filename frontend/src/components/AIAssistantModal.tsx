@@ -19,6 +19,8 @@ import {
   HelpCircle,
   Maximize2,
   Minimize2,
+  Paperclip,
+  UploadCloud,
 } from 'lucide-react';
 
 interface ChatMessage {
@@ -26,6 +28,8 @@ interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   toolCalls?: string[];
+  fileName?: string;
+  fileSize?: string;
   timestamp: string;
 }
 
@@ -40,8 +44,9 @@ const INITIAL_WELCOME: ChatMessage = {
   role: 'assistant',
   content:
     'Olá! Sou o **Assistente IA do Gênesis REURB**, integrado ao **Google Gemini** e ao banco de dados em tempo real.\n\n' +
-    'Posso consultar informações cadastrais, contratos, parcelas em atraso, resumos de loteamentos (*Vila Nova*, *Tatão*, *Dardanelos*) e esclarecer dúvidas jurídicas sobre a **Lei 13.465/2017**.\n\n' +
-    'Como posso ajudar você agora?',
+    'Além de tirar dúvidas sobre a **Lei 13.465/2017** e consultar lotes/inadimplência, agora você pode **anexar documentos diretamente aqui no chat (📎)** e pedir:\n\n' +
+    '👉 *"Esse documento é de Fulano de Tal Qd XX Lt 11 faça upload"*\n\n' +
+    'Eu salvarei o arquivo e vincularei ao lote e titular automaticamente no checklist documental!',
   timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
 };
 
@@ -55,7 +60,6 @@ const SUGGESTED_PROMPTS = [
 
 // Lightweight, safe Markdown renderer for chat responses
 function renderMarkdown(text: string) {
-  // Check if text contains markdown table
   const lines = text.split('\n');
   const renderedElements: React.ReactNode[] = [];
   let inTable = false;
@@ -97,7 +101,6 @@ function renderMarkdown(text: string) {
   };
 
   const formatInline = (inlineText: string): React.ReactNode => {
-    // Bold **text**
     const parts = inlineText.split(/(\*\*.*?\*\*|\*.*?\*|`.*?`)/g);
     return parts.map((part, pIdx) => {
       if (part.startsWith('**') && part.endsWith('**')) {
@@ -124,14 +127,12 @@ function renderMarkdown(text: string) {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
 
-    // Table line detector
     if (line.trim().startsWith('|') && line.trim().endsWith('|')) {
       const cells = line
         .trim()
         .slice(1, -1)
         .split('|');
 
-      // Check if it's separator row |---|---|
       if (cells.every((c) => c.trim().match(/^:?-+:?$/))) {
         continue;
       }
@@ -149,7 +150,6 @@ function renderMarkdown(text: string) {
       }
     }
 
-    // Headings
     if (line.startsWith('### ')) {
       renderedElements.push(
         <h4 key={i} className="text-sm font-bold text-slate-900 mt-2 mb-1">
@@ -169,14 +169,12 @@ function renderMarkdown(text: string) {
         </h2>
       );
     } else if (line.trim().startsWith('- ') || line.trim().startsWith('* ')) {
-      // Bullet list item
       renderedElements.push(
         <li key={i} className="ml-4 list-disc text-slate-700 text-xs sm:text-sm my-0.5">
           {formatInline(line.trim().slice(2))}
         </li>
       );
     } else if (line.trim().match(/^\d+\.\s/)) {
-      // Numbered list item
       const content = line.trim().replace(/^\d+\.\s/, '');
       renderedElements.push(
         <li key={i} className="ml-4 list-decimal text-slate-700 text-xs sm:text-sm my-0.5">
@@ -186,7 +184,6 @@ function renderMarkdown(text: string) {
     } else if (line.trim() === '') {
       renderedElements.push(<div key={i} className="h-1.5" />);
     } else {
-      // Standard paragraph
       renderedElements.push(
         <p key={i} className="text-xs sm:text-sm text-slate-700 leading-relaxed">
           {formatInline(line)}
@@ -225,9 +222,12 @@ export function AIAssistantModal({
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<AIStatus | null>(null);
   const [isExpanded, setIsExpanded] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Check backend Gemini status on mount
   useEffect(() => {
@@ -265,32 +265,79 @@ export function AIAssistantModal({
     }
   }, [isOpen]);
 
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setSelectedFile(e.target.files[0]);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      setSelectedFile(e.dataTransfer.files[0]);
+    }
+  };
+
   const handleSendMessage = async (textToSend?: string) => {
     const prompt = (textToSend || input).trim();
-    if (!prompt || loading) return;
+    if ((!prompt && !selectedFile) || loading) return;
 
+    const currentFile = selectedFile;
     const userMsg: ChatMessage = {
       id: `user-${Date.now()}`,
       role: 'user',
-      content: prompt,
+      content: prompt || (currentFile ? `Envio do documento: ${currentFile.name}` : ''),
+      fileName: currentFile?.name,
+      fileSize: currentFile ? `${(currentFile.size / 1024).toFixed(0)} KB` : undefined,
       timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
     };
 
     setMessages((prev) => [...prev, userMsg]);
     setInput('');
+    setSelectedFile(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
     setLoading(true);
 
     try {
-      // Build history for backend
       const historyPayload = messages.map((m) => ({
         role: m.role,
         content: m.content,
       }));
 
-      const res = await axios.post('/api/ai/chat', {
-        message: prompt,
-        history: historyPayload,
-      });
+      let res;
+
+      if (currentFile) {
+        // Envio com multipart/form-data
+        const formData = new FormData();
+        formData.append('message', prompt || `Envio de documento para cadastro.`);
+        formData.append('history', JSON.stringify(historyPayload));
+        formData.append('file', currentFile);
+
+        res = await axios.post('/api/ai/chat', formData, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        });
+      } else {
+        // Envio padrão JSON
+        res = await axios.post('/api/ai/chat', {
+          message: prompt,
+          history: historyPayload,
+        });
+      }
 
       const data = res.data?.data;
       const botMsg: ChatMessage = {
@@ -334,12 +381,24 @@ export function AIAssistantModal({
 
       {/* Floating Chat Container */}
       <div
-        className={`pointer-events-auto w-full bg-white shadow-2xl border border-slate-200/80 rounded-t-2xl sm:rounded-2xl flex flex-col transition-all duration-300 overflow-hidden ${
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        className={`pointer-events-auto w-full bg-white shadow-2xl border border-slate-200/80 rounded-t-2xl sm:rounded-2xl flex flex-col transition-all duration-300 overflow-hidden relative ${
           isExpanded
             ? 'h-[95vh] sm:h-[90vh] sm:w-[780px]'
             : 'h-[85vh] sm:h-[620px] sm:w-[480px]'
         }`}
       >
+        {/* Drag Overlay */}
+        {isDragging && (
+          <div className="absolute inset-0 bg-[#0f5964]/90 z-50 flex flex-col items-center justify-center text-white backdrop-blur-2xs p-6 border-4 border-dashed border-teal-200 m-2 rounded-2xl animate-in fade-in duration-150">
+            <UploadCloud size={48} className="text-teal-200 animate-bounce mb-3" />
+            <h4 className="text-lg font-bold">Solte o documento aqui</h4>
+            <p className="text-xs text-teal-100 mt-1">PDF, imagem (PNG, JPG) ou documento</p>
+          </div>
+        )}
+
         {/* Header */}
         <div className="bg-gradient-to-r from-[#0f5964] via-[#136b78] to-[#0f5964] px-4 py-3 text-white flex items-center justify-between shrink-0 shadow-xs">
           <div className="flex items-center gap-2.5">
@@ -421,11 +480,20 @@ export function AIAssistantModal({
                     : 'bg-white border border-slate-200/90 text-slate-800 rounded-bl-none'
                 }`}
               >
+                {/* User file attachment badge */}
+                {msg.fileName && (
+                  <div className="mb-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-teal-800/60 border border-teal-400/30 text-teal-100 text-xs">
+                    <Paperclip size={13} className="text-teal-200 shrink-0" />
+                    <span className="font-medium truncate max-w-[220px]">{msg.fileName}</span>
+                    {msg.fileSize && <span className="text-teal-300/70 text-[10px]">({msg.fileSize})</span>}
+                  </div>
+                )}
+
                 {/* Tool calls badge if executed */}
                 {msg.toolCalls && msg.toolCalls.length > 0 && (
                   <div className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold text-teal-700 bg-teal-50 border border-teal-200/80 px-2 py-0.5 rounded-md">
                     <Database size={11} className="text-teal-600" />
-                    <span>Consultou banco de dados: {msg.toolCalls.join(', ')}</span>
+                    <span>Ação realizada: {msg.toolCalls.join(', ')}</span>
                   </div>
                 )}
 
@@ -449,7 +517,7 @@ export function AIAssistantModal({
               <div className="bg-white border border-slate-200 rounded-2xl rounded-bl-none p-3 shadow-2xs flex items-center gap-2.5">
                 <Sparkles size={16} className="text-[#0f5964] animate-spin" />
                 <span className="text-xs text-slate-600 font-medium">
-                  Consultando dados do sistema com o Gemini...
+                  Processando com o Gemini e atualizando o sistema...
                 </span>
                 <span className="flex gap-1 ml-1">
                   <span className="h-1.5 w-1.5 rounded-full bg-teal-500 animate-bounce [animation-delay:-0.3s]"></span>
@@ -484,6 +552,28 @@ export function AIAssistantModal({
 
         {/* Input Bar */}
         <div className="p-3 bg-white border-t border-slate-200 shrink-0">
+          {/* File Selected Badge */}
+          {selectedFile && (
+            <div className="flex items-center justify-between px-3 py-1.5 bg-teal-50 border border-teal-200 rounded-xl mb-2 text-xs text-teal-800 animate-in fade-in duration-150">
+              <div className="flex items-center gap-2 truncate">
+                <FileText size={15} className="text-[#0f5964] shrink-0" />
+                <span className="font-semibold truncate max-w-[220px]">{selectedFile.name}</span>
+                <span className="text-slate-400 text-[11px]">({(selectedFile.size / 1024).toFixed(0)} KB)</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedFile(null);
+                  if (fileInputRef.current) fileInputRef.current.value = '';
+                }}
+                className="p-1 hover:bg-teal-100 rounded-lg text-teal-700 transition cursor-pointer"
+                title="Remover anexo"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          )}
+
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -491,18 +581,46 @@ export function AIAssistantModal({
             }}
             className="flex items-center gap-2"
           >
+            {/* Hidden file input */}
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileSelect}
+              accept=".pdf,.png,.jpg,.jpeg,.doc,.docx"
+              className="hidden"
+            />
+
+            {/* Paperclip attachment button */}
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={loading}
+              className={`flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-xl border transition cursor-pointer shrink-0 ${
+                selectedFile
+                  ? 'bg-teal-50 border-teal-300 text-[#0f5964]'
+                  : 'border-slate-200 hover:bg-slate-100 text-slate-500 hover:text-slate-800'
+              }`}
+              title="Anexar documento (PDF, foto, comprovante)"
+            >
+              <Paperclip size={18} />
+            </button>
+
             <input
               ref={inputRef}
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               disabled={loading}
-              placeholder="Pergunte sobre lotes, parcelas, REURB ou titular..."
+              placeholder={
+                selectedFile
+                  ? 'Digite: "Esse documento é de [Nome] Qd [XX] Lt [YY] faça upload"...'
+                  : 'Pergunte sobre lotes, parcelas ou anexe um documento (📎)...'
+              }
               className="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs sm:text-sm text-slate-800 placeholder:text-slate-400 focus:bg-white focus:border-[#0f5964] focus:ring-2 focus:ring-[#0f5964]/20 outline-none transition disabled:opacity-50"
             />
             <button
               type="submit"
-              disabled={!input.trim() || loading}
+              disabled={(!input.trim() && !selectedFile) || loading}
               className="flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-xl bg-[#0f5964] hover:bg-[#0c4750] text-white shadow-xs transition disabled:opacity-40 disabled:hover:bg-[#0f5964] cursor-pointer shrink-0"
               title="Enviar mensagem"
             >
@@ -510,8 +628,8 @@ export function AIAssistantModal({
             </button>
           </form>
           <div className="flex items-center justify-between mt-1.5 px-1 text-[10px] text-slate-400">
-            <span>Powered by Google Gemini 3.8 Flash</span>
-            <span>Gênesis REURB • Inteligência Artificial</span>
+            <span>📎 Arraste arquivos ou clique no clipe para upload</span>
+            <span>Gênesis REURB • Google Gemini</span>
           </div>
         </div>
       </div>
