@@ -298,6 +298,15 @@ async function executeGetProjectSummary(args: any) {
   };
 }
 
+function getNumberVariants(val: string | number | undefined | null): string[] {
+  if (val === undefined || val === null) return [];
+  const s = String(val).trim();
+  if (!s) return [];
+  const noLeadingZero = s.replace(/^0+/, '') || '0';
+  const withLeadingZero = s.length === 1 && /^\d+$/.test(s) ? '0' + s : s;
+  return Array.from(new Set([s, noLeadingZero, withLeadingZero])).filter(Boolean);
+}
+
 async function executeSearchLots(args: any) {
   const limit = Math.min(Number(args.limit) || 15, 50);
   const today = new Date();
@@ -312,14 +321,16 @@ async function executeSearchLots(args: any) {
     if (p) projectFilterId = p.id;
   }
 
+  const blockVariants = getNumberVariants(args.blockNumber);
+
   const lots = await prisma.lot.findMany({
     where: {
       active: true,
       projectId: projectFilterId,
-      ...(args.blockNumber
+      ...(blockVariants.length > 0
         ? {
             block: {
-              number: { equals: args.blockNumber.trim(), mode: 'insensitive' },
+              number: { in: blockVariants, mode: 'insensitive' },
             },
           }
         : {}),
@@ -417,12 +428,14 @@ async function executeSearchLots(args: any) {
 async function executeGetLotDetails(args: any) {
   const blockNum = String(args.blockNumber || '').trim();
   const lotNum = String(args.lotNumber || '').trim();
+  const blockVariants = getNumberVariants(args.blockNumber);
+  const lotVariants = getNumberVariants(args.lotNumber);
   const projQuery = args.projectName?.trim();
 
   const lot = await prisma.lot.findFirst({
     where: {
-      number: { equals: lotNum, mode: 'insensitive' },
-      block: { number: { equals: blockNum, mode: 'insensitive' } },
+      number: { in: lotVariants, mode: 'insensitive' },
+      block: { number: { in: blockVariants, mode: 'insensitive' } },
       ...(projQuery ? { project: { name: { contains: projQuery, mode: 'insensitive' } } } : {}),
       active: true,
     },
@@ -715,6 +728,8 @@ async function executeUploadLotDocument(
     };
   }
 
+  const blockVariants = getNumberVariants(args.blockNumber);
+  const lotVariants = getNumberVariants(args.lotNumber);
   const blockNum = String(args.blockNumber || '').trim();
   const lotNum = String(args.lotNumber || '').trim();
   const projQuery = args.projectName?.trim();
@@ -723,8 +738,8 @@ async function executeUploadLotDocument(
   // Find lot by number and block
   const lot = await prisma.lot.findFirst({
     where: {
-      number: { equals: lotNum, mode: 'insensitive' },
-      block: { number: { equals: blockNum, mode: 'insensitive' } },
+      number: { in: lotVariants, mode: 'insensitive' },
+      block: { number: { in: blockVariants, mode: 'insensitive' } },
       ...(projQuery ? { project: { name: { contains: projQuery, mode: 'insensitive' } } } : {}),
       active: true,
     },
@@ -770,7 +785,11 @@ async function executeUploadLotDocument(
   // Match or create DocumentType if needed
   const category = args.documentCategory || 'Documentos Complementares';
 
-  let finalUserId = userId;
+  let finalUserId: string | null = null;
+  if (userId) {
+    const existing = await prisma.user.findUnique({ where: { id: userId } });
+    if (existing) finalUserId = existing.id;
+  }
   if (!finalUserId) {
     const adminUser = await prisma.user.findFirst({ where: { active: true } });
     finalUserId = adminUser?.id || '';
@@ -814,23 +833,30 @@ async function executeUploadLotDocument(
 
 // Router for tool calls
 async function dispatchToolCall(toolName: string, args: any, uploadedFile?: any, userId?: string) {
-  switch (toolName) {
-    case 'uploadLotDocument':
-      return await executeUploadLotDocument(args, uploadedFile, userId);
-    case 'getProjectSummary':
-      return await executeGetProjectSummary(args);
-    case 'searchLots':
-      return await executeSearchLots(args);
-    case 'getLotDetails':
-      return await executeGetLotDetails(args);
-    case 'getFinancialSummary':
-      return await executeGetFinancialSummary(args);
-    case 'searchPerson':
-      return await executeSearchPerson(args);
-    case 'getDocumentChecklist':
-      return await executeGetDocumentChecklist(args);
-    default:
-      return { error: `Ferramenta desconhecida: ${toolName}` };
+  try {
+    switch (toolName) {
+      case 'uploadLotDocument':
+        return await executeUploadLotDocument(args, uploadedFile, userId);
+      case 'getProjectSummary':
+        return await executeGetProjectSummary(args);
+      case 'searchLots':
+        return await executeSearchLots(args);
+      case 'getLotDetails':
+        return await executeGetLotDetails(args);
+      case 'getFinancialSummary':
+        return await executeGetFinancialSummary(args);
+      case 'searchPerson':
+        return await executeSearchPerson(args);
+      case 'getDocumentChecklist':
+        return await executeGetDocumentChecklist(args);
+      default:
+        return { error: `Ferramenta desconhecida: ${toolName}` };
+    }
+  } catch (err: any) {
+    console.error(`[Gemini dispatchToolCall] Erro ao executar ${toolName}:`, err?.message || err);
+    return {
+      error: `Erro ao executar ${toolName}: ${err?.message || 'Falha interna'}`,
+    };
   }
 }
 
@@ -867,12 +893,13 @@ export async function processGeminiChatMessage(
     };
   }
 
-  // Model hierarchy: Prefer modern gemini-3.8-flash, fallback to gemini-2.5-flash or gemini-1.5-flash
+  // Model hierarchy: Prefer fast and reliable gemini-3.5-flash-lite, fallback to gemini-3.5-flash or gemini-3.8-flash
   const modelsToTry = [
-    process.env.GEMINI_MODEL || 'gemini-3.8-flash',
+    process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite',
+    'gemini-3.5-flash-lite',
+    'gemini-3.5-flash',
+    'gemini-3.8-flash',
     'gemini-flash-latest',
-    'gemini-2.5-flash',
-    'gemini-1.5-flash',
   ];
 
   const ai = new GoogleGenAI({ apiKey });
@@ -937,13 +964,14 @@ O usuário enviou este arquivo anexo. Se ele solicitar upload, cadastro ou vincu
             functionResponse: {
               name: toolName,
               response: toolResult,
+              id: (call as any).id,
             },
           });
         }
 
-        // Add function execution results to contents
+        // Add function execution results to contents (role 'user' required by Google GenAI SDK for functionResponse)
         contents.push({
-          role: 'tool',
+          role: 'user',
           parts: functionResponseParts,
         });
 
