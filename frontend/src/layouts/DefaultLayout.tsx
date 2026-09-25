@@ -18,6 +18,8 @@ import {
   MapPin,
   Map,
   Camera,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -175,6 +177,37 @@ export function DefaultLayout() {
   const { user } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
+  // Estado de recolhimento da barra lateral desktop (persistido no localStorage)
+  const [isCollapsed, setIsCollapsed] = useState<boolean>(() => {
+    const saved = localStorage.getItem('genesis_sidebar_collapsed');
+    if (saved !== null) {
+      return saved === 'true';
+    }
+    // No mapa interativo, inicia recolhido para liberar a área total da planta
+    return window.location.pathname.startsWith('/map');
+  });
+
+  const [isHovered, setIsHovered] = useState(false);
+
+  // A barra fica expandida visualmente se NÃO estiver colapsada (fixada) OU se o cursor estiver sobre ela
+  const isExpanded = !isCollapsed || isHovered;
+
+  const toggleCollapse = () => {
+    setIsCollapsed((prev) => {
+      const next = !prev;
+      localStorage.setItem('genesis_sidebar_collapsed', String(next));
+      return next;
+    });
+  };
+
+  // Dispara redimensionamento após animação da barra lateral para o Leaflet ajustar a tela
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      window.dispatchEvent(new Event('resize'));
+    }, 320);
+    return () => clearTimeout(timer);
+  }, [isCollapsed]);
+
   // Iniciais do usuário para o avatar
   const userInitials = useMemo(() => {
     if (!user?.name) return 'GV';
@@ -230,11 +263,15 @@ export function DefaultLayout() {
     navigate('/login');
   }
 
-  const renderNavGroup = (group: NavGroup, onNavigate?: () => void) => (
-    <div key={group.title} className="mb-5">
-      <div className="px-3 pb-2 text-[11px] font-bold tracking-wider text-slate-400 uppercase">
-        {group.title}
-      </div>
+  const renderNavGroup = (group: NavGroup, isNavExpanded: boolean, onNavigate?: () => void) => (
+    <div key={group.title} className={isNavExpanded ? 'mb-4' : 'mb-2'}>
+      {isNavExpanded ? (
+        <div className="px-3 pb-1.5 text-[10px] font-bold tracking-wider text-slate-400 uppercase">
+          {group.title}
+        </div>
+      ) : (
+        <div className="my-1.5 border-t border-slate-100 mx-1.5" />
+      )}
       <div className="space-y-0.5">
         {group.items.map((item) => {
           const Icon = item.icon;
@@ -250,17 +287,22 @@ export function DefaultLayout() {
               onClick={() => {
                 if (onNavigate) onNavigate();
               }}
-              className={`flex items-center gap-3 px-3 py-2 text-sm rounded-lg transition-colors ${
+              title={!isNavExpanded ? item.label : undefined}
+              className={`flex items-center rounded-lg transition-colors ${
+                isNavExpanded
+                  ? 'gap-3 px-3 py-2 text-sm'
+                  : 'justify-center w-10 h-10 mx-auto'
+              } ${
                 isActive
                   ? 'bg-[#edf7f7] text-[#0f5964] font-semibold shadow-xs'
                   : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 font-normal'
               }`}
             >
               <Icon
-                size={18}
+                size={isNavExpanded ? 18 : 20}
                 className={`shrink-0 ${isActive ? 'text-[#0f5964]' : 'text-slate-400'}`}
               />
-              <span className="truncate">{item.label}</span>
+              {isNavExpanded && <span className="truncate">{item.label}</span>}
             </NavLink>
           );
         })}
@@ -330,7 +372,7 @@ export function DefaultLayout() {
             </div>
 
             <nav className="flex-1 overflow-y-auto pr-1">
-              {NAV_GROUPS.map((grp) => renderNavGroup(grp, () => setMobileMenuOpen(false)))}
+              {NAV_GROUPS.map((grp) => renderNavGroup(grp, true, () => setMobileMenuOpen(false)))}
             </nav>
 
             <div className="pt-3 border-t border-slate-100 space-y-1">
@@ -359,7 +401,7 @@ export function DefaultLayout() {
                   setMobileMenuOpen(false);
                   handleLogout();
                 }}
-                className="w-full flex items-center gap-3 px-3 py-2 text-sm font-medium text-rose-600 hover:bg-rose-50 rounded-lg transition mt-2"
+                className="w-full flex items-center gap-3 px-3 py-2 text-sm font-medium text-rose-600 hover:bg-rose-50 rounded-lg transition mt-2 cursor-pointer"
               >
                 <LogOut size={18} />
                 <span>Sair do sistema</span>
@@ -371,56 +413,136 @@ export function DefaultLayout() {
 
       {/* ESTRUTURA PRINCIPAL DESKTOP + CONTEÚDO */}
       <div className="flex min-h-screen flex-1">
-        {/* BARRA LATERAL FIXA NO DESKTOP (LARGURA RESERVADA, SEM COBRIR CONTEÚDO) */}
-        <aside className="hidden lg:flex w-64 shrink-0 flex-col justify-between border-r border-slate-200 bg-white sticky top-0 h-screen overflow-y-auto">
-          <div>
-            {/* LOGO INSTITUCIONAL OFICIAL */}
-            <div className="p-5 border-b border-slate-100">
-              <img
-                src="/genesis-logo.png"
-                alt="Gênesis Engenharia e Consultoria"
-                className="h-10 w-auto object-contain"
-              />
+        {/* ESPAÇADOR DESKTOP (RESERVA O ESPAÇO PARA O CONTEÚDO NÃO SOFRER REFLOW/PULO) */}
+        <div
+          className={`hidden lg:block shrink-0 transition-all duration-300 ease-in-out ${
+            isCollapsed ? 'w-16' : 'w-64'
+          }`}
+          aria-hidden="true"
+        />
+
+        {/* BARRA LATERAL DESKTOP RETRÁTIL (ESTILO SISTEMA ESO: TRILHO W-16 EXPANSÍVEL NO HOVER OU FIXAÇÃO) */}
+        <aside
+          onMouseEnter={() => {
+            if (isCollapsed) setIsHovered(true);
+          }}
+          onMouseLeave={() => {
+            if (isCollapsed) setIsHovered(false);
+          }}
+          className={`hidden lg:flex flex-col justify-between border-r border-slate-200 bg-white fixed top-0 left-0 h-screen z-40 transition-all duration-300 ease-in-out select-none overflow-x-hidden ${
+            isExpanded ? 'w-64 shadow-2xl' : 'w-16 shadow-none'
+          }`}
+        >
+          <div className="flex flex-col flex-1 min-h-0">
+            {/* CABEÇALHO DO MENU / LOGO + BOTÃO FIXAR/RECOLHER */}
+            <div
+              className={`flex items-center border-b border-slate-100 transition-all duration-300 ${
+                isExpanded ? 'justify-between px-4 py-3 h-14' : 'justify-center py-3 h-14'
+              }`}
+            >
+              {isExpanded ? (
+                <>
+                  <div className="flex items-center gap-2 overflow-hidden">
+                    <img
+                      src="/genesis-logo.png"
+                      alt="Gênesis Engenharia e Consultoria"
+                      className="h-8 w-auto object-contain max-w-[160px]"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={toggleCollapse}
+                    title={isCollapsed ? 'Fixar menu lateral aberto' : 'Recolher menu lateral'}
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-[#0f5964] hover:bg-[#edf7f7] transition cursor-pointer"
+                  >
+                    <ChevronLeft size={18} />
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={toggleCollapse}
+                  title="Expandir e fixar menu lateral"
+                  className="flex items-center justify-center p-1 rounded-lg hover:bg-slate-100 transition cursor-pointer group"
+                >
+                  <img
+                    src="/favicon.svg"
+                    alt="Gênesis REURB"
+                    className="h-7 w-7 object-contain transition-transform group-hover:scale-110"
+                  />
+                </button>
+              )}
             </div>
 
             {/* ITENS DE MENU AGRUPADOS */}
-            <nav className="p-3.5 pt-4">
-              {NAV_GROUPS.map((grp) => renderNavGroup(grp))}
+            <nav className="flex-1 overflow-y-auto overflow-x-hidden p-2 pt-3 space-y-1">
+              {NAV_GROUPS.map((grp) => renderNavGroup(grp, isExpanded))}
             </nav>
           </div>
 
           {/* RODAPÉ DO MENU / USUÁRIO E LOGOUT */}
-          <div className="p-3.5 border-t border-slate-100 bg-slate-50/50">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-xs font-semibold text-slate-700 shadow-xs">
-                  {userInitials}
+          {isExpanded ? (
+            <div className="p-3 border-t border-slate-100 bg-slate-50/50">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-xs font-semibold text-slate-700 shadow-xs">
+                    {userInitials}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-slate-800 truncate">
+                      {user?.name || 'Administrador'}
+                    </p>
+                    <p className="text-[11px] text-slate-400 truncate">{user?.email || 'genesis'}</p>
+                  </div>
                 </div>
-                <div className="min-w-0">
-                  <p className="text-xs font-semibold text-slate-800 truncate">
-                    {user?.name || 'Administrador'}
-                  </p>
-                  <p className="text-[11px] text-slate-400 truncate">{user?.email || 'genesis'}</p>
-                </div>
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  title="Sair do sistema"
+                  className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+                >
+                  <LogOut size={16} />
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="p-2 border-t border-slate-100 bg-slate-50/50 flex flex-col items-center gap-1.5">
+              <div
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-xs font-semibold text-slate-700 shadow-xs hover:border-[#0f5964] transition cursor-pointer"
+                title={`${user?.name || 'Usuário'} (${user?.email || ''})`}
+              >
+                {userInitials}
               </div>
               <button
                 type="button"
                 onClick={handleLogout}
                 title="Sair do sistema"
-                className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
+                className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
               >
                 <LogOut size={16} />
               </button>
             </div>
-          </div>
+          )}
         </aside>
 
         {/* ÁREA DE CONTEÚDO */}
         <div className="flex-1 flex flex-col min-w-0">
           {/* BARRA DE NAVEGAÇÃO DE TOPO DESKTOP (BREADCRUMB + PERFIL) */}
-          <header className="hidden lg:flex h-14 items-center justify-between border-b border-slate-200/80 bg-white px-8">
-            <div className="text-xs font-medium text-slate-500 flex items-center gap-2">
-              {breadcrumb}
+          <header className="hidden lg:flex h-14 items-center justify-between border-b border-slate-200/80 bg-white px-4 sm:px-6">
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={toggleCollapse}
+                aria-label={isCollapsed ? 'Expandir e fixar menu lateral' : 'Recolher menu lateral'}
+                title={isCollapsed ? 'Expandir e fixar menu lateral' : 'Recolher menu lateral'}
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors cursor-pointer"
+              >
+                <Menu size={18} />
+              </button>
+
+              <div className="text-xs font-medium text-slate-500 flex items-center gap-2">
+                {breadcrumb}
+              </div>
             </div>
 
             <div className="flex items-center gap-3">
@@ -433,7 +555,13 @@ export function DefaultLayout() {
           </header>
 
           {/* CONTEÚDO DA PÁGINA */}
-          <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-[1600px] w-full mx-auto">
+          <main
+            className={`flex-1 w-full ${
+              location.pathname.startsWith('/map')
+                ? 'p-2 sm:p-2.5 max-w-none flex flex-col min-w-0'
+                : 'p-4 sm:p-6 lg:p-8 max-w-[1600px] mx-auto'
+            }`}
+          >
             <Outlet />
           </main>
         </div>

@@ -32,8 +32,7 @@ import {
   User,
   MapPin,
   Calendar,
-  Edit3,
-  List
+  Edit3
 } from 'lucide-react';
 import { LotMapDrawer, LotDrawerData } from './LotMapDrawer';
 import { BlockManagerModal } from './BlockManagerModal';
@@ -76,7 +75,7 @@ export function ProjectMap({ mapData, projectId, onRefreshData }: ProjectMapProp
 
   // Layout & Sidebar States (CTMGEO Geoportal Pattern)
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
-  const [sidebarTab, setSidebarTab] = useState<'list' | 'info' | 'layers' | 'filters'>('list');
+  const [sidebarTab, setSidebarTab] = useState<'info' | 'layers' | 'filters'>('info');
 
   // GIS Tool Mode
   const [activeTool, setActiveTool] = useState<GISTool>('identify');
@@ -132,72 +131,6 @@ export function ProjectMap({ mapData, projectId, onRefreshData }: ProjectMapProp
       (a.number || '').localeCompare(b.number || '', undefined, { numeric: true })
     );
   }, [mapData]);
-
-  // Extract all lot features for the compact list view
-  const lotFeaturesList = useMemo(() => {
-    if (!mapData?.geojson?.features) return [];
-    const list: LotDrawerData[] = [];
-    mapData.geojson.features.forEach((f: any) => {
-      const props = f.properties || {};
-      const type = props.type || (props.areaM2 ? 'lot' : 'other');
-      if (type === 'lot' || (props.areaM2 >= 30 && props.areaM2 <= 2000)) {
-        const fid = f.id || props.featureId || props.id;
-        list.push({
-          featureId: fid,
-          type: 'lot',
-          label: props.label || `Lote ${fid}`,
-          lotNumber: props.lotNumber,
-          blockNumber: props.blockNumber,
-          areaM2: props.areaM2,
-          perimeterM: props.perimeterM,
-          utmCenter: props.utmCenter,
-          wgsCenter: props.wgsCenter,
-          statusContract: props.statusContract || 'UNLINKED',
-          statusFinancial: props.statusFinancial || 'UNLINKED',
-          lotData: props.lotData || null
-        });
-      }
-    });
-
-    return list.sort((a, b) => {
-      const qA = a.blockNumber || '';
-      const qB = b.blockNumber || '';
-      const qComp = qA.localeCompare(qB, undefined, { numeric: true });
-      if (qComp !== 0) return qComp;
-      const lA = a.lotNumber || a.label || '';
-      const lB = b.lotNumber || b.label || '';
-      return lA.localeCompare(lB, undefined, { numeric: true });
-    });
-  }, [mapData]);
-
-  // Filtered list based on search, quadra and status filters
-  const filteredLotsList = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
-    return lotFeaturesList.filter((item) => {
-      if (selectedQuadraFilter !== 'ALL' && item.blockNumber !== selectedQuadraFilter) {
-        return false;
-      }
-      if (statusFilter !== 'ALL') {
-        if (visualMode === 'contractual' && item.statusContract !== statusFilter) {
-          return false;
-        }
-        if (visualMode === 'financial' && item.statusFinancial !== statusFilter) {
-          return false;
-        }
-      }
-      if (query) {
-        const match =
-          item.label?.toLowerCase().includes(query) ||
-          item.featureId?.toLowerCase().includes(query) ||
-          item.lotNumber?.toLowerCase().includes(query) ||
-          item.blockNumber?.toLowerCase().includes(query) ||
-          item.lotData?.occupant?.name?.toLowerCase().includes(query) ||
-          item.lotData?.occupant?.cpf?.includes(query);
-        if (!match) return false;
-      }
-      return true;
-    });
-  }, [lotFeaturesList, searchQuery, selectedQuadraFilter, statusFilter, visualMode]);
 
   // Custom UTM Planar CRS based on tile metadata
   const customCRS = useMemo(() => {
@@ -802,33 +735,18 @@ export function ProjectMap({ mapData, projectId, onRefreshData }: ProjectMapProp
     setIsLotModalOpen(true);
   };
 
-  // Select lot from compact list and center map view
-  const handleSelectLotFromList = (featureData: LotDrawerData, openInfo: boolean = false) => {
-    setSelectedFeature(featureData);
-    if (openInfo) {
-      setSidebarTab('info');
-    }
-    if (mapInstanceRef.current && featureData.utmCenter) {
-      const center = L.latLng(featureData.utmCenter[1], featureData.utmCenter[0]);
-      mapInstanceRef.current.setView(center, Math.max(mapInstanceRef.current.getZoom(), 7), {
-        animate: true,
-        duration: 0.5
-      });
-    }
-  };
-
   const occupant = selectedFeature?.lotData?.occupant;
   const contract = selectedFeature?.lotData?.contract;
   const financial = selectedFeature?.lotData?.financial;
 
   return (
-    <div className="relative w-full h-[calc(100vh-100px)] min-h-[580px] rounded-xl overflow-hidden border border-slate-200/90 bg-slate-100 shadow-sm flex flex-col select-none">
+    <div className="relative w-full h-[calc(100vh-190px)] min-h-[580px] rounded-2xl overflow-hidden border border-slate-200 bg-slate-100 shadow-sm flex flex-col select-none">
       {/* ============================================================ */}
-      {/* TOP GIS RIBBON / CONTROL BAR (COMPACT CTMGEO STYLE)           */}
+      {/* TOP GIS RIBBON / CONTROL BAR (CTMGEO STYLE)                   */}
       {/* ============================================================ */}
-      <div className="shrink-0 z-20 px-2.5 py-1.5 bg-white/95 backdrop-blur-md border-b border-slate-200/90 flex flex-wrap items-center justify-between gap-1.5 shadow-2xs">
+      <div className="shrink-0 z-20 px-3 py-2 bg-white/95 backdrop-blur-md border-b border-slate-200/90 flex flex-wrap items-center justify-between gap-2 shadow-xs">
         {/* Left: GIS Tool Modes */}
-        <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200/80 gap-0.5">
+        <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200/80 gap-1">
           {/* Navegar (Pan) */}
           <button
             type="button"
@@ -836,8 +754,8 @@ export function ProjectMap({ mapData, projectId, onRefreshData }: ProjectMapProp
               setActiveTool('nav');
               handleClearMeasurement();
             }}
-            className={`flex items-center gap-1 px-2 py-1 rounded-md text-xs font-semibold transition cursor-pointer ${
-              activeTool === 'nav' ? 'bg-[#0f5964] text-white shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+              activeTool === 'nav' ? 'bg-[#0f5964] text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
             }`}
             title="Navegar livremente pelo mapa (Pan)"
           >
@@ -852,8 +770,8 @@ export function ProjectMap({ mapData, projectId, onRefreshData }: ProjectMapProp
               setActiveTool('identify');
               handleClearMeasurement();
             }}
-            className={`flex items-center gap-1 px-2 py-1 rounded-md text-xs font-semibold transition cursor-pointer ${
-              activeTool === 'identify' ? 'bg-[#0f5964] text-white shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+              activeTool === 'identify' ? 'bg-[#0f5964] text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
             }`}
             title="Identificar lote e abrir Cadastro Imobiliário"
           >
@@ -868,13 +786,13 @@ export function ProjectMap({ mapData, projectId, onRefreshData }: ProjectMapProp
               handleClearMeasurement();
               setActiveTool('measure_dist');
             }}
-            className={`flex items-center gap-1 px-2 py-1 rounded-md text-xs font-semibold transition cursor-pointer ${
-              activeTool === 'measure_dist' ? 'bg-sky-600 text-white shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+              activeTool === 'measure_dist' ? 'bg-sky-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
             }`}
             title="Medir distância em metros (clique nos pontos)"
           >
             <Ruler className="w-3.5 h-3.5" />
-            <span className="hidden md:inline">Distância</span>
+            <span className="hidden md:inline">Medir Distância</span>
           </button>
 
           {/* Medir Área */}
@@ -884,13 +802,13 @@ export function ProjectMap({ mapData, projectId, onRefreshData }: ProjectMapProp
               handleClearMeasurement();
               setActiveTool('measure_area');
             }}
-            className={`flex items-center gap-1 px-2 py-1 rounded-md text-xs font-semibold transition cursor-pointer ${
-              activeTool === 'measure_area' ? 'bg-sky-600 text-white shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+              activeTool === 'measure_area' ? 'bg-sky-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
             }`}
             title="Medir área em m² e perímetro (desenhe um polígono)"
           >
             <Maximize2 className="w-3.5 h-3.5" />
-            <span className="hidden md:inline">Área</span>
+            <span className="hidden md:inline">Medir Área</span>
           </button>
 
           {/* Limpar Medição */}
@@ -898,7 +816,7 @@ export function ProjectMap({ mapData, projectId, onRefreshData }: ProjectMapProp
             <button
               type="button"
               onClick={handleClearMeasurement}
-              className="flex items-center gap-1 px-1.5 py-1 rounded-md text-xs font-medium text-red-600 hover:bg-red-50 transition cursor-pointer"
+              className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-medium text-red-600 hover:bg-red-50 transition cursor-pointer"
               title="Limpar medição desenhada"
             >
               <Trash2 className="w-3.5 h-3.5" />
@@ -908,23 +826,23 @@ export function ProjectMap({ mapData, projectId, onRefreshData }: ProjectMapProp
         </div>
 
         {/* Center: Search & Reset */}
-        <div className="flex items-center gap-1 flex-1 max-w-[200px] sm:max-w-xs">
+        <div className="flex items-center gap-1.5 flex-1 max-w-xs sm:max-w-sm">
           <div className="relative w-full">
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Buscar lote, quadra, morador..."
-              className="w-full pl-8 pr-7 py-1 text-xs bg-slate-50 hover:bg-slate-100/80 focus:bg-white border border-slate-200 rounded-lg text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0f5964]/20 transition"
+              placeholder="Buscar lote, quadra ou titular..."
+              className="w-full pl-9 pr-8 py-1.5 text-xs bg-slate-50 hover:bg-slate-100/80 focus:bg-white border border-slate-200 rounded-xl text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0f5964]/20 transition"
             />
             {searchQuery && (
               <button
                 type="button"
                 onClick={() => setSearchQuery('')}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
               >
-                <X className="w-3 h-3" />
+                <X className="w-3.5 h-3.5" />
               </button>
             )}
           </div>
@@ -932,7 +850,7 @@ export function ProjectMap({ mapData, projectId, onRefreshData }: ProjectMapProp
           <button
             type="button"
             onClick={handleResetBounds}
-            className="flex items-center gap-1 px-2 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium shadow-2xs transition cursor-pointer shrink-0"
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium shadow-2xs transition cursor-pointer shrink-0"
             title="Enquadrar projeto inteiro"
           >
             <Crosshair className="w-3.5 h-3.5 text-[#0f5964]" />
@@ -941,11 +859,11 @@ export function ProjectMap({ mapData, projectId, onRefreshData }: ProjectMapProp
         </div>
 
         {/* Right: Quadras, Novo Lote & Coordinates Readout */}
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={() => setIsBlockModalOpen(true)}
-            className="flex items-center gap-1 px-2 py-1 rounded-lg border border-teal-200 bg-teal-50/80 hover:bg-teal-100 text-[#0f5964] text-xs font-bold shadow-2xs transition cursor-pointer"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-teal-200 bg-teal-50/80 hover:bg-teal-100 text-[#0f5964] text-xs font-bold shadow-2xs transition cursor-pointer"
             title="Gerenciar quadras oficiais"
           >
             <Building className="w-3.5 h-3.5" />
@@ -959,7 +877,7 @@ export function ProjectMap({ mapData, projectId, onRefreshData }: ProjectMapProp
               setLotModalInitialData(null);
               setIsLotModalOpen(true);
             }}
-            className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#0f5964] hover:bg-[#0c4750] text-white text-xs font-bold shadow-2xs transition cursor-pointer"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#0f5964] hover:bg-[#0c4750] text-white text-xs font-bold shadow-2xs transition cursor-pointer"
             title="Cadastrar novo lote"
           >
             <Plus className="w-3.5 h-3.5" />
@@ -967,12 +885,12 @@ export function ProjectMap({ mapData, projectId, onRefreshData }: ProjectMapProp
           </button>
 
           {/* Coordinate Readout */}
-          <div className="hidden xl:flex items-center gap-1.5 pl-1.5 border-l border-slate-200 text-[10px] font-mono text-slate-600 bg-slate-50 px-2 py-0.5 rounded border border-slate-200">
-            <Compass className="w-3 h-3 text-[#0f5964]" />
+          <div className="hidden xl:flex items-center gap-2 pl-2 border-l border-slate-200 text-[11px] font-mono text-slate-600 bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-200">
+            <Compass className="w-3.5 h-3.5 text-[#0f5964]" />
             <span>
               {cursorCoords
-                ? `X:${Math.round(cursorCoords.x).toLocaleString('pt-BR')} Y:${Math.round(cursorCoords.y).toLocaleString('pt-BR')}`
-                : 'SIRGAS 2000'}
+                ? `X: ${Math.round(cursorCoords.x).toLocaleString('pt-BR')} m | Y: ${Math.round(cursorCoords.y).toLocaleString('pt-BR')} m`
+                : 'UTM SIRGAS 2000'}
             </span>
           </div>
         </div>
@@ -1003,51 +921,35 @@ export function ProjectMap({ mapData, projectId, onRefreshData }: ProjectMapProp
         {/* LEFT DOCKED GEOPORTAL SIDEBAR (CTMGEO CADASTRO IMOBILIÁRIO)*/}
         {/* ========================================================== */}
         <div
-          className={`relative z-10 bg-white border-r border-slate-200/90 shadow-md flex flex-col transition-all duration-300 ease-in-out shrink-0 ${
-            isSidebarOpen ? 'w-72 sm:w-80' : 'w-0 border-r-0'
+          className={`relative z-10 bg-white border-r border-slate-200/90 shadow-lg flex flex-col transition-all duration-300 ease-in-out shrink-0 ${
+            isSidebarOpen ? 'w-80 sm:w-96' : 'w-0 border-r-0'
           }`}
         >
           {isSidebarOpen && (
             <>
               {/* Sidebar Tabs Header */}
-              <div className="shrink-0 flex items-center bg-slate-50 border-b border-slate-200 p-1 gap-0.5">
-                <button
-                  type="button"
-                  onClick={() => setSidebarTab('list')}
-                  className={`flex-1 flex items-center justify-center gap-1 py-1.5 text-xs font-bold rounded-md transition cursor-pointer ${
-                    sidebarTab === 'list'
-                      ? 'bg-white text-[#0f5964] shadow-2xs border border-slate-200/80'
-                      : 'text-slate-500 hover:text-slate-800'
-                  }`}
-                  title="Lista compacta de todos os lotes"
-                >
-                  <List className="w-3.5 h-3.5" />
-                  Lista
-                </button>
-
+              <div className="shrink-0 flex items-center bg-slate-50 border-b border-slate-200 p-1">
                 <button
                   type="button"
                   onClick={() => setSidebarTab('info')}
-                  className={`flex-1 flex items-center justify-center gap-1 py-1.5 text-xs font-bold rounded-md transition cursor-pointer ${
+                  className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-bold rounded-lg transition cursor-pointer ${
                     sidebarTab === 'info'
-                      ? 'bg-white text-[#0f5964] shadow-2xs border border-slate-200/80'
+                      ? 'bg-white text-[#0f5964] shadow-xs border border-slate-200/80'
                       : 'text-slate-500 hover:text-slate-800'
                   }`}
-                  title="Ficha cadastral do imóvel selecionado"
                 >
                   <Info className="w-3.5 h-3.5" />
-                  Ficha
+                  Informações
                 </button>
 
                 <button
                   type="button"
                   onClick={() => setSidebarTab('layers')}
-                  className={`flex-1 flex items-center justify-center gap-1 py-1.5 text-xs font-bold rounded-md transition cursor-pointer ${
+                  className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-bold rounded-lg transition cursor-pointer ${
                     sidebarTab === 'layers'
-                      ? 'bg-white text-[#0f5964] shadow-2xs border border-slate-200/80'
+                      ? 'bg-white text-[#0f5964] shadow-xs border border-slate-200/80'
                       : 'text-slate-500 hover:text-slate-800'
                   }`}
-                  title="Camadas do mapa (Ortofoto, Quadras)"
                 >
                   <Layers className="w-3.5 h-3.5" />
                   Camadas
@@ -1056,12 +958,11 @@ export function ProjectMap({ mapData, projectId, onRefreshData }: ProjectMapProp
                 <button
                   type="button"
                   onClick={() => setSidebarTab('filters')}
-                  className={`flex-1 flex items-center justify-center gap-1 py-1.5 text-xs font-bold rounded-md transition cursor-pointer ${
+                  className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-bold rounded-lg transition cursor-pointer ${
                     sidebarTab === 'filters'
-                      ? 'bg-white text-[#0f5964] shadow-2xs border border-slate-200/80'
+                      ? 'bg-white text-[#0f5964] shadow-xs border border-slate-200/80'
                       : 'text-slate-500 hover:text-slate-800'
                   }`}
-                  title="Filtros temáticos"
                 >
                   <Filter className="w-3.5 h-3.5" />
                   Filtros
@@ -1069,145 +970,19 @@ export function ProjectMap({ mapData, projectId, onRefreshData }: ProjectMapProp
               </div>
 
               {/* Sidebar Content Area */}
-              <div className="flex-1 overflow-y-auto p-2 space-y-2">
-                {/* TAB 0: LISTA DE LOTES COMPACTA */}
-                {sidebarTab === 'list' && (
-                  <div className="flex flex-col h-full space-y-1.5">
-                    {/* Compact Filter Strip */}
-                    <div className="shrink-0 p-1.5 bg-slate-50 rounded-lg border border-slate-200/80 space-y-1">
-                      <div className="flex items-center justify-between text-[11px]">
-                        <span className="font-bold text-slate-800">
-                          {filteredLotsList.length} <span className="font-normal text-slate-500">de {lotFeaturesList.length} lotes</span>
-                        </span>
-                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-white border border-slate-200 text-teal-800">
-                          {visualMode === 'contractual' ? 'Contratual' : 'Financeiro'}
-                        </span>
-                      </div>
-
-                      {availableQuadras.length > 0 && (
-                        <select
-                          value={selectedQuadraFilter}
-                          onChange={(e) => setSelectedQuadraFilter(e.target.value)}
-                          className="w-full text-xs py-1 px-2 bg-white border border-slate-200 rounded-md text-slate-800 font-semibold focus:outline-none focus:ring-1 focus:ring-[#0f5964]/20 transition cursor-pointer"
-                        >
-                          <option value="ALL">Todas as Quadras ({lotFeaturesList.length})</option>
-                          {availableQuadras.map((q) => (
-                            <option key={q.id} value={q.number}>
-                              {q.label} {q.totalLots ? `(${q.totalLots}L)` : ''}
-                            </option>
-                          ))}
-                        </select>
-                      )}
-                    </div>
-
-                    {/* Compact Lots Rows Table */}
-                    <div className="flex-1 overflow-y-auto divide-y divide-slate-100 rounded-lg border border-slate-100 bg-white">
-                      {filteredLotsList.length === 0 ? (
-                        <div className="p-4 text-center text-xs text-slate-500 space-y-1">
-                          <p className="font-semibold text-slate-700">Nenhum lote encontrado</p>
-                          <p className="text-[11px]">Ajuste a busca ou filtro de quadra.</p>
-                        </div>
-                      ) : (
-                        filteredLotsList.map((item) => {
-                          const isSelected = selectedFeature?.featureId === item.featureId;
-                          const occupantName = item.lotData?.occupant?.name;
-
-                          let dotColor = 'bg-slate-300';
-                          let statusLabel = 'Não vinculado';
-                          if (visualMode === 'contractual') {
-                            if (item.statusContract === 'CONTRACT_SIGNED') {
-                              dotColor = 'bg-teal-500';
-                              statusLabel = 'Contrato assinado';
-                            } else if (item.statusContract === 'NOT_SIGNED') {
-                              dotColor = 'bg-slate-500';
-                              statusLabel = 'Sem contrato';
-                            } else if (item.statusContract === 'DISTRATTO') {
-                              dotColor = 'bg-orange-500';
-                              statusLabel = 'Distrato';
-                            }
-                          } else {
-                            if (item.statusFinancial === 'PAID') {
-                              dotColor = 'bg-emerald-500';
-                              statusLabel = 'Quitado';
-                            } else if (item.statusFinancial === 'UP_TO_DATE') {
-                              dotColor = 'bg-blue-500';
-                              statusLabel = 'Em dia';
-                            } else if (item.statusFinancial === 'OVERDUE') {
-                              dotColor = 'bg-red-500';
-                              statusLabel = 'Em atraso';
-                            } else if (item.statusFinancial === 'NO_CHARGES') {
-                              dotColor = 'bg-slate-400';
-                              statusLabel = 'Sem cobrança';
-                            }
-                          }
-
-                          return (
-                            <div
-                              key={item.featureId}
-                              onClick={() => handleSelectLotFromList(item)}
-                              className={`group py-1 px-2 flex items-center justify-between gap-1.5 transition cursor-pointer select-none text-xs ${
-                                isSelected
-                                  ? 'bg-sky-50 border-l-2 border-l-sky-600 font-semibold'
-                                  : 'hover:bg-slate-50/80 border-l-2 border-l-transparent'
-                              }`}
-                              title={`Q.${item.blockNumber || '?'} L.${item.lotNumber || '?'} • ${occupantName || 'Sem titular'} • ${statusLabel}`}
-                            >
-                              <div className="flex items-center gap-1.5 min-w-0">
-                                <span className={`px-1 py-0.5 rounded text-[10px] font-bold font-mono shrink-0 ${
-                                  isSelected ? 'bg-sky-600 text-white' : 'bg-slate-100 text-slate-700'
-                                }`}>
-                                  Q{item.blockNumber || '?'}-L{item.lotNumber || item.featureId.replace('lote_geo_', '')}
-                                </span>
-
-                                <span className="truncate text-xs text-slate-800 max-w-[100px] sm:max-w-[125px]">
-                                  {occupantName || <span className="italic text-slate-400 font-normal">Disponível</span>}
-                                </span>
-                              </div>
-
-                              <div className="flex items-center gap-1.5 shrink-0">
-                                {item.areaM2 ? (
-                                  <span className="text-[10px] text-slate-400 font-mono">
-                                    {Math.round(item.areaM2)}m²
-                                  </span>
-                                ) : null}
-
-                                <span
-                                  className={`w-2 h-2 rounded-full shrink-0 ${dotColor}`}
-                                  title={statusLabel}
-                                />
-
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleSelectLotFromList(item, true);
-                                  }}
-                                  className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-slate-200 text-slate-500 hover:text-slate-800 transition"
-                                  title="Abrir ficha cadastral completa"
-                                >
-                                  <Info className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
-                            </div>
-                          );
-                        })
-                      )}
-                    </div>
-                  </div>
-                )}
-
+              <div className="flex-1 overflow-y-auto p-3.5 space-y-4">
                 {/* TAB 1: INFORMAÇÕES (CADASTRO IMOBILIÁRIO) */}
                 {sidebarTab === 'info' && (
                   <>
                     {selectedFeature ? (
-                      <div className="space-y-2 animate-in fade-in duration-150">
+                      <div className="space-y-3.5 animate-in fade-in duration-150">
                         {/* Imóvel Identification Header Card */}
-                        <div className="p-2.5 rounded-lg bg-gradient-to-br from-[#0f5964] to-[#0c4750] text-white shadow-2xs">
+                        <div className="p-3.5 rounded-xl bg-gradient-to-br from-[#0f5964] to-[#0c4750] text-white shadow-xs">
                           <div className="flex items-center justify-between">
-                            <span className="text-[9px] font-bold uppercase tracking-wider text-teal-200">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-teal-200">
                               Cadastro Imobiliário
                             </span>
-                            <span className="px-1.5 py-0.5 rounded text-[9px] font-extrabold bg-white/20 text-white">
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-white/20 text-white backdrop-blur-xs">
                               {selectedFeature.statusContract === 'CONTRACT_SIGNED'
                                 ? 'Regularizado'
                                 : selectedFeature.statusContract === 'UNLINKED'
@@ -1216,89 +991,92 @@ export function ProjectMap({ mapData, projectId, onRefreshData }: ProjectMapProp
                             </span>
                           </div>
 
-                          <div className="mt-1 flex items-baseline justify-between">
+                          <div className="mt-2 flex items-baseline justify-between">
                             <div>
-                              <h3 className="text-sm font-bold">
+                              <h3 className="text-base font-black">
                                 {selectedFeature.blockNumber ? `Quadra ${selectedFeature.blockNumber}` : 'Quadra S/N'} •{' '}
                                 {selectedFeature.lotNumber ? `Lote ${selectedFeature.lotNumber}` : selectedFeature.label}
                               </h3>
-                              <p className="text-[11px] text-teal-100">{mapData?.project?.name || 'Vila Nova'}</p>
+                              <p className="text-xs text-teal-100 mt-0.5">{mapData?.project?.name || 'Vila Nova'}</p>
                             </div>
 
                             <button
                               type="button"
                               onClick={() => setIsEspelhoModalOpen(true)}
-                              className="p-1 rounded-md bg-white/15 hover:bg-white/25 text-white transition cursor-pointer"
+                              className="p-1.5 rounded-lg bg-white/15 hover:bg-white/25 text-white transition cursor-pointer"
                               title="Imprimir Espelho Cadastral Oficial"
                             >
-                              <Printer className="w-3.5 h-3.5" />
+                              <Printer className="w-4 h-4" />
                             </button>
                           </div>
                         </div>
 
                         {/* Localização */}
-                        <div className="p-2 rounded-lg bg-slate-50 border border-slate-200/80 space-y-1 text-xs">
-                          <div className="flex items-center gap-1 font-bold text-slate-800 text-[11px]">
-                            <MapPin className="w-3 h-3 text-[#0f5964]" />
+                        <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80 space-y-1.5">
+                          <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800">
+                            <MapPin className="w-3.5 h-3.5 text-[#0f5964]" />
                             <span>Localização</span>
                           </div>
-                          <div className="text-[11px] text-slate-600 space-y-0.5">
+                          <div className="text-xs text-slate-600 space-y-0.5">
                             <p>
                               <span className="font-semibold text-slate-700">Endereço:</span>{' '}
                               {selectedFeature.lotData?.address || 'Rua Projetada'}
                             </p>
                             <p>
                               <span className="font-semibold text-slate-700">Loteamento:</span>{' '}
-                              {mapData?.project?.name || 'Vila Nova'} • Aripuanã - MT
+                              {mapData?.project?.name || 'Vila Nova'}
+                            </p>
+                            <p>
+                              <span className="font-semibold text-slate-700">Município:</span> Aripuanã - MT
                             </p>
                           </div>
                         </div>
 
                         {/* Informações Territoriais */}
-                        <div className="p-2 rounded-lg bg-slate-50 border border-slate-200/80 space-y-1 text-xs">
-                          <div className="flex items-center justify-between font-bold text-slate-800 text-[11px]">
-                            <span className="flex items-center gap-1">
-                              <FileText className="w-3 h-3 text-[#0f5964]" />
+                        <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80 space-y-2">
+                          <div className="flex items-center justify-between text-xs font-bold text-slate-800">
+                            <span className="flex items-center gap-1.5">
+                              <FileText className="w-3.5 h-3.5 text-[#0f5964]" />
                               Informações Territoriais
                             </span>
-                            <span className="text-[9px] font-normal text-slate-400">SIRGAS 2000</span>
+                            <span className="text-[10px] font-normal text-slate-500">SIRGAS 2000</span>
                           </div>
 
-                          <div className="grid grid-cols-2 gap-1.5 text-xs">
-                            <div className="p-1.5 rounded bg-white border border-slate-200">
-                              <span className="text-[9px] text-slate-400 font-medium block">Área</span>
-                              <span className="font-bold text-slate-800 text-xs">
-                                {selectedFeature.areaM2 ? `${selectedFeature.areaM2.toFixed(1)} m²` : '-'}
+                          <div className="grid grid-cols-2 gap-2 text-xs">
+                            <div className="p-2 rounded-lg bg-white border border-slate-200">
+                              <span className="text-[10px] text-slate-400 font-medium block">Área</span>
+                              <span className="font-bold text-slate-800">
+                                {selectedFeature.areaM2 ? `${selectedFeature.areaM2.toFixed(2)} m²` : '-'}
                               </span>
                             </div>
 
-                            <div className="p-1.5 rounded bg-white border border-slate-200">
-                              <span className="text-[9px] text-slate-400 font-medium block">Perímetro</span>
-                              <span className="font-bold text-slate-800 text-xs">
-                                {selectedFeature.perimeterM ? `${selectedFeature.perimeterM.toFixed(1)} m` : '-'}
+                            <div className="p-2 rounded-lg bg-white border border-slate-200">
+                              <span className="text-[10px] text-slate-400 font-medium block">Perímetro</span>
+                              <span className="font-bold text-slate-800">
+                                {selectedFeature.perimeterM ? `${selectedFeature.perimeterM.toFixed(2)} m` : '-'}
                               </span>
                             </div>
                           </div>
                         </div>
 
                         {/* Titular / Ocupante */}
-                        <div className="p-2 rounded-lg bg-slate-50 border border-slate-200/80 space-y-1 text-xs">
-                          <div className="flex items-center justify-between font-bold text-slate-800 text-[11px]">
-                            <span className="flex items-center gap-1">
-                              <User className="w-3 h-3 text-[#0f5964]" />
+                        <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80 space-y-2">
+                          <div className="flex items-center justify-between text-xs font-bold text-slate-800">
+                            <span className="flex items-center gap-1.5">
+                              <User className="w-3.5 h-3.5 text-[#0f5964]" />
                               Titular / Ocupante
                             </span>
                           </div>
 
                           {occupant ? (
-                            <div className="space-y-1 text-xs">
-                              <div className="p-1.5 rounded bg-white border border-slate-200 space-y-0.5">
-                                <p className="font-bold text-slate-900 text-xs">{occupant.name}</p>
-                                <p className="text-slate-600 font-mono text-[10px]">
+                            <div className="space-y-2 text-xs">
+                              <div className="p-2 rounded-lg bg-white border border-slate-200 space-y-1">
+                                <p className="font-bold text-slate-900">{occupant.name}</p>
+                                <p className="text-slate-600 font-mono text-[11px]">
                                   CPF: {occupant.cpf || 'Não informado'}
                                 </p>
                                 {occupant.phone && (
-                                  <p className="text-slate-600 text-[10px]">
+                                  <p className="text-slate-600 text-[11px]">
                                     Telefone: {occupant.phone}
                                   </p>
                                 )}
@@ -1315,31 +1093,31 @@ export function ProjectMap({ mapData, projectId, onRefreshData }: ProjectMapProp
                                       selectedFeature.blockNumber
                                     )
                                   }
-                                  className="w-full flex items-center justify-center gap-1.5 py-1 px-2.5 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition cursor-pointer"
+                                  className="w-full flex items-center justify-center gap-2 py-1.5 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-2xs transition cursor-pointer"
                                 >
-                                  <MessageCircle className="w-3 h-3" />
-                                  Enviar WhatsApp
+                                  <MessageCircle className="w-3.5 h-3.5" />
+                                  Enviar Mensagem WhatsApp
                                 </button>
                               )}
                             </div>
                           ) : (
-                            <div className="p-2 rounded bg-amber-50/70 border border-amber-200 text-[11px] text-amber-800">
-                              Nenhum titular vinculado a este lote.
+                            <div className="p-2.5 rounded-lg bg-amber-50/70 border border-amber-200 text-xs text-amber-800">
+                              Nenhum morador ou titular vinculado a este lote.
                             </div>
                           )}
                         </div>
 
                         {/* Situação Contratual & Financeira */}
-                        <div className="p-2 rounded-lg bg-slate-50 border border-slate-200/80 space-y-1 text-xs">
-                          <div className="flex items-center justify-between font-bold text-slate-800 text-[11px]">
-                            <span className="flex items-center gap-1">
-                              <DollarSign className="w-3 h-3 text-[#0f5964]" />
+                        <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80 space-y-2">
+                          <div className="flex items-center justify-between text-xs font-bold text-slate-800">
+                            <span className="flex items-center gap-1.5">
+                              <DollarSign className="w-3.5 h-3.5 text-[#0f5964]" />
                               Contrato & Financeiro
                             </span>
                           </div>
 
-                          <div className="space-y-1 text-xs">
-                            <div className="flex items-center justify-between p-1.5 rounded bg-white border border-slate-200 text-[11px]">
+                          <div className="space-y-1.5 text-xs">
+                            <div className="flex items-center justify-between p-2 rounded-lg bg-white border border-slate-200">
                               <span className="text-slate-500">Contrato</span>
                               <span className="font-bold text-slate-800">
                                 {selectedFeature.statusContract === 'CONTRACT_SIGNED'
@@ -1350,7 +1128,7 @@ export function ProjectMap({ mapData, projectId, onRefreshData }: ProjectMapProp
                               </span>
                             </div>
 
-                            <div className="flex items-center justify-between p-1.5 rounded bg-white border border-slate-200 text-[11px]">
+                            <div className="flex items-center justify-between p-2 rounded-lg bg-white border border-slate-200">
                               <span className="text-slate-500">Situação Financeira</span>
                               <span className="font-bold text-emerald-700">
                                 {selectedFeature.statusFinancial === 'PAID'
@@ -1364,7 +1142,7 @@ export function ProjectMap({ mapData, projectId, onRefreshData }: ProjectMapProp
                             </div>
 
                             {financial && (
-                              <div className="flex items-center justify-between p-1.5 rounded bg-white border border-slate-200 text-[11px]">
+                              <div className="flex items-center justify-between p-2 rounded-lg bg-white border border-slate-200">
                                 <span className="text-slate-500">Parcelas Pagas</span>
                                 <span className="font-bold text-slate-800">
                                   {financial.paidInstallments} de {financial.totalInstallments}
@@ -1375,24 +1153,24 @@ export function ProjectMap({ mapData, projectId, onRefreshData }: ProjectMapProp
                         </div>
 
                         {/* Action Buttons */}
-                        <div className="space-y-1.5 pt-0.5">
+                        <div className="space-y-2 pt-1">
                           <button
                             type="button"
                             onClick={() => setIsEspelhoModalOpen(true)}
-                            className="w-full flex items-center justify-center gap-1.5 py-1.5 px-2.5 rounded-lg bg-[#0f5964] hover:bg-[#0c4750] text-white font-bold text-xs transition cursor-pointer"
+                            className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-[#0f5964] hover:bg-[#0c4750] text-white font-bold text-xs shadow-xs transition cursor-pointer"
                           >
-                            <Printer className="w-3.5 h-3.5" />
+                            <Printer className="w-4 h-4" />
                             Imprimir Espelho Cadastral (A4)
                           </button>
 
-                          <div className="grid grid-cols-2 gap-1.5">
+                          <div className="grid grid-cols-2 gap-2">
                             {selectedFeature.lotData?.id && (
                               <button
                                 type="button"
                                 onClick={() => handleEditLot(selectedFeature.lotData!.id)}
-                                className="flex items-center justify-center gap-1 py-1 px-2 rounded-lg border border-slate-200 hover:bg-slate-100 text-slate-700 font-semibold text-xs transition cursor-pointer"
+                                className="flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-700 font-semibold text-xs transition cursor-pointer"
                               >
-                                <Edit3 className="w-3 h-3 text-slate-500" />
+                                <Edit3 className="w-3.5 h-3.5 text-slate-500" />
                                 Editar Dados
                               </button>
                             )}
@@ -1400,9 +1178,9 @@ export function ProjectMap({ mapData, projectId, onRefreshData }: ProjectMapProp
                             <button
                               type="button"
                               onClick={() => setIsDrawerOpen(true)}
-                              className="flex items-center justify-center gap-1 py-1 px-2 rounded-lg border border-slate-200 hover:bg-slate-100 text-slate-700 font-semibold text-xs transition cursor-pointer"
+                              className="flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-700 font-semibold text-xs transition cursor-pointer"
                             >
-                              <ExternalLink className="w-3 h-3 text-slate-500" />
+                              <ExternalLink className="w-3.5 h-3.5 text-slate-500" />
                               Prontuário
                             </button>
                           </div>
@@ -1410,20 +1188,20 @@ export function ProjectMap({ mapData, projectId, onRefreshData }: ProjectMapProp
                       </div>
                     ) : (
                       /* Empty state when no lot is selected */
-                      <div className="p-4 text-center space-y-2">
-                        <div className="w-9 h-9 rounded-xl bg-teal-50 text-[#0f5964] flex items-center justify-center mx-auto">
-                          <Compass className="w-5 h-5" />
+                      <div className="p-6 text-center space-y-3">
+                        <div className="w-12 h-12 rounded-2xl bg-teal-50 text-[#0f5964] flex items-center justify-center mx-auto">
+                          <Compass className="w-6 h-6" />
                         </div>
                         <div>
-                          <h4 className="text-xs font-bold text-slate-800">Cadastro Imobiliário</h4>
-                          <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
-                            Selecione qualquer lote na lista ou no mapa para consultar dados cadastrais e financeiros.
+                          <h4 className="text-sm font-bold text-slate-800">Cadastro Imobiliário</h4>
+                          <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                            Clique em qualquer lote no mapa para consultar a ficha cadastral do imóvel, dados do titular e situação financeira.
                           </p>
                         </div>
 
-                        <div className="p-2 rounded-lg bg-slate-50 border border-slate-200 text-left space-y-1 mt-2 text-[11px]">
-                          <span className="font-bold text-slate-700 block">Resumo do Loteamento</span>
-                          <div className="text-slate-600 space-y-0.5">
+                        <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-left space-y-2 mt-4">
+                          <span className="text-[11px] font-bold text-slate-700 block">Resumo do Loteamento</span>
+                          <div className="text-xs text-slate-600 space-y-1">
                             <div className="flex justify-between">
                               <span>Total de Lotes:</span>
                               <span className="font-bold text-slate-800">{stats.contractual.total}</span>
@@ -1445,30 +1223,30 @@ export function ProjectMap({ mapData, projectId, onRefreshData }: ProjectMapProp
 
                 {/* TAB 2: CAMADAS */}
                 {sidebarTab === 'layers' && (
-                  <div className="space-y-2">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                  <div className="space-y-3">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block">
                       Gerenciador de Camadas
                     </span>
 
                     {/* Aerial Image Switch */}
-                    <div className="flex items-center justify-between p-2 rounded-lg bg-slate-50 border border-slate-200">
-                      <div className="flex items-center gap-2">
-                        <ImageIcon className="w-3.5 h-3.5 text-slate-500" />
+                    <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-200">
+                      <div className="flex items-center gap-2.5">
+                        <ImageIcon className="w-4 h-4 text-slate-500" />
                         <div>
-                          <p className="text-xs font-bold text-slate-800">Ortofoto Drone</p>
-                          <p className="text-[10px] text-slate-500">Imagem aérea 1:1</p>
+                          <p className="text-xs font-bold text-slate-800">Ortofoto de Drone</p>
+                          <p className="text-[11px] text-slate-500">Imagem aérea georreferenciada</p>
                         </div>
                       </div>
                       <button
                         type="button"
                         onClick={() => setShowAerialImage(!showAerialImage)}
                         disabled={!mapData.hasAerialImage}
-                        className={`w-8 h-4 rounded-full transition-colors relative cursor-pointer ${
+                        className={`w-9 h-5 rounded-full transition-colors relative cursor-pointer ${
                           showAerialImage ? 'bg-[#0f5964]' : 'bg-slate-300'
                         }`}
                       >
                         <span
-                          className={`block w-3.5 h-3.5 rounded-full bg-white shadow-xs transition-transform transform ${
+                          className={`block w-4 h-4 rounded-full bg-white shadow-xs transition-transform transform ${
                             showAerialImage ? 'translate-x-4' : 'translate-x-0.5'
                           }`}
                         />
@@ -1476,23 +1254,23 @@ export function ProjectMap({ mapData, projectId, onRefreshData }: ProjectMapProp
                     </div>
 
                     {/* Quadras Boundaries Switch */}
-                    <div className="flex items-center justify-between p-2 rounded-lg bg-slate-50 border border-slate-200">
-                      <div className="flex items-center gap-2">
-                        <Building className="w-3.5 h-3.5 text-slate-500" />
+                    <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-200">
+                      <div className="flex items-center gap-2.5">
+                        <Building className="w-4 h-4 text-slate-500" />
                         <div>
-                          <p className="text-xs font-bold text-slate-800">Limites Quadras</p>
-                          <p className="text-[10px] text-slate-500">6 quadras oficiais</p>
+                          <p className="text-xs font-bold text-slate-800">Limites das Quadras</p>
+                          <p className="text-[11px] text-slate-500">Polígonos das 6 quadras oficiais</p>
                         </div>
                       </div>
                       <button
                         type="button"
                         onClick={() => setShowQuadrasLayer(!showQuadrasLayer)}
-                        className={`w-8 h-4 rounded-full transition-colors relative cursor-pointer ${
+                        className={`w-9 h-5 rounded-full transition-colors relative cursor-pointer ${
                           showQuadrasLayer ? 'bg-[#0f5964]' : 'bg-slate-300'
                         }`}
                       >
                         <span
-                          className={`block w-3.5 h-3.5 rounded-full bg-white shadow-xs transition-transform transform ${
+                          className={`block w-4 h-4 rounded-full bg-white shadow-xs transition-transform transform ${
                             showQuadrasLayer ? 'translate-x-4' : 'translate-x-0.5'
                           }`}
                         />
@@ -1500,23 +1278,23 @@ export function ProjectMap({ mapData, projectId, onRefreshData }: ProjectMapProp
                     </div>
 
                     {/* Lot Labels Switch */}
-                    <div className="flex items-center justify-between p-2 rounded-lg bg-slate-50 border border-slate-200">
-                      <div className="flex items-center gap-2">
-                        <FileText className="w-3.5 h-3.5 text-slate-500" />
+                    <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-200">
+                      <div className="flex items-center gap-2.5">
+                        <FileText className="w-4 h-4 text-slate-500" />
                         <div>
                           <p className="text-xs font-bold text-slate-800">Rótulos dos Lotes</p>
-                          <p className="text-[10px] text-slate-500">Numeração no zoom</p>
+                          <p className="text-[11px] text-slate-500">Numeração visível no zoom</p>
                         </div>
                       </div>
                       <button
                         type="button"
                         onClick={() => setShowLabels(!showLabels)}
-                        className={`w-8 h-4 rounded-full transition-colors relative cursor-pointer ${
+                        className={`w-9 h-5 rounded-full transition-colors relative cursor-pointer ${
                           showLabels ? 'bg-[#0f5964]' : 'bg-slate-300'
                         }`}
                       >
                         <span
-                          className={`block w-3.5 h-3.5 rounded-full bg-white shadow-xs transition-transform transform ${
+                          className={`block w-4 h-4 rounded-full bg-white shadow-xs transition-transform transform ${
                             showLabels ? 'translate-x-4' : 'translate-x-0.5'
                           }`}
                         />
@@ -1527,26 +1305,26 @@ export function ProjectMap({ mapData, projectId, onRefreshData }: ProjectMapProp
 
                 {/* TAB 3: FILTROS E TEMAS */}
                 {sidebarTab === 'filters' && (
-                  <div className="space-y-2.5">
+                  <div className="space-y-4">
                     {/* Visual Mode Switcher */}
                     <div>
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-2">
                         Modo Temático
                       </span>
-                      <div className="grid grid-cols-2 gap-1 p-0.5 rounded-lg bg-slate-100 border border-slate-200">
+                      <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-slate-100 border border-slate-200">
                         <button
                           type="button"
                           onClick={() => {
                             setVisualMode('contractual');
                             setStatusFilter('ALL');
                           }}
-                          className={`flex items-center justify-center gap-1 py-1 text-xs font-bold rounded transition cursor-pointer ${
+                          className={`flex items-center justify-center gap-1.5 py-1.5 text-xs font-bold rounded-lg transition cursor-pointer ${
                             visualMode === 'contractual'
-                              ? 'bg-[#0f5964] text-white shadow-2xs'
+                              ? 'bg-[#0f5964] text-white shadow-xs'
                               : 'text-slate-600 hover:text-slate-900'
                           }`}
                         >
-                          <FileText className="w-3 h-3" />
+                          <FileText className="w-3.5 h-3.5" />
                           Contratual
                         </button>
                         <button
@@ -1555,13 +1333,13 @@ export function ProjectMap({ mapData, projectId, onRefreshData }: ProjectMapProp
                             setVisualMode('financial');
                             setStatusFilter('ALL');
                           }}
-                          className={`flex items-center justify-center gap-1 py-1 text-xs font-bold rounded transition cursor-pointer ${
+                          className={`flex items-center justify-center gap-1.5 py-1.5 text-xs font-bold rounded-lg transition cursor-pointer ${
                             visualMode === 'financial'
-                              ? 'bg-emerald-700 text-white shadow-2xs'
+                              ? 'bg-emerald-700 text-white shadow-xs'
                               : 'text-slate-600 hover:text-slate-900'
                           }`}
                         >
-                          <DollarSign className="w-3 h-3" />
+                          <DollarSign className="w-3.5 h-3.5" />
                           Financeiro
                         </button>
                       </div>
@@ -1570,18 +1348,18 @@ export function ProjectMap({ mapData, projectId, onRefreshData }: ProjectMapProp
                     {/* Filter by Quadra */}
                     {availableQuadras.length > 0 && (
                       <div>
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-2">
                           Filtrar por Quadra
                         </span>
                         <select
                           value={selectedQuadraFilter}
                           onChange={(e) => setSelectedQuadraFilter(e.target.value)}
-                          className="w-full text-xs py-1 px-2 bg-slate-50 border border-slate-200 rounded-md text-slate-800 font-semibold focus:outline-none focus:ring-1 focus:ring-[#0f5964]/20 transition cursor-pointer"
+                          className="w-full text-xs py-2 px-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 font-semibold focus:outline-none focus:ring-2 focus:ring-[#0f5964]/20 transition cursor-pointer"
                         >
                           <option value="ALL">Todas as Quadras ({availableQuadras.length})</option>
                           {availableQuadras.map((q) => (
                             <option key={q.id} value={q.number}>
-                              {q.label} {q.totalLots ? `(${q.totalLots}L)` : ''}
+                              {q.label} {q.totalLots ? `(${q.totalLots} lotes)` : ''}
                             </option>
                           ))}
                         </select>
@@ -1590,21 +1368,21 @@ export function ProjectMap({ mapData, projectId, onRefreshData }: ProjectMapProp
 
                     {/* Status Pill Filters */}
                     <div>
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-2">
                         Situação ({visualMode === 'contractual' ? 'Contratual' : 'Financeira'})
                       </span>
-                      <div className="flex flex-col gap-1">
+                      <div className="flex flex-col gap-1.5">
                         <button
                           type="button"
                           onClick={() => setStatusFilter('ALL')}
-                          className={`w-full flex items-center justify-between px-2 py-1 rounded-md text-xs font-semibold transition cursor-pointer ${
+                          className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition cursor-pointer ${
                             statusFilter === 'ALL'
                               ? 'bg-slate-800 text-white'
                               : 'bg-slate-50 border border-slate-200 text-slate-700 hover:bg-slate-100'
                           }`}
                         >
                           <span>Todos</span>
-                          <span className="text-[10px] opacity-80">
+                          <span className="text-[11px] opacity-80">
                             {visualMode === 'contractual' ? stats.contractual.total : stats.financial.total}
                           </span>
                         </button>
@@ -1614,14 +1392,14 @@ export function ProjectMap({ mapData, projectId, onRefreshData }: ProjectMapProp
                             <button
                               type="button"
                               onClick={() => setStatusFilter(statusFilter === 'CONTRACT_SIGNED' ? 'ALL' : 'CONTRACT_SIGNED')}
-                              className={`w-full flex items-center justify-between px-2 py-1 rounded-md text-xs font-semibold transition cursor-pointer ${
+                              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition cursor-pointer ${
                                 statusFilter === 'CONTRACT_SIGNED'
                                   ? 'bg-teal-700 text-white'
                                   : 'bg-teal-50 border border-teal-200 text-teal-800 hover:bg-teal-100'
                               }`}
                             >
                               <span className="flex items-center gap-1.5">
-                                <span className="w-1.5 h-1.5 rounded-full bg-teal-500" />
+                                <span className="w-2 h-2 rounded-full bg-teal-500" />
                                 Contrato Assinado
                               </span>
                               <span>{stats.contractual.signed}</span>
@@ -1630,14 +1408,14 @@ export function ProjectMap({ mapData, projectId, onRefreshData }: ProjectMapProp
                             <button
                               type="button"
                               onClick={() => setStatusFilter(statusFilter === 'NOT_SIGNED' ? 'ALL' : 'NOT_SIGNED')}
-                              className={`w-full flex items-center justify-between px-2 py-1 rounded-md text-xs font-semibold transition cursor-pointer ${
+                              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition cursor-pointer ${
                                 statusFilter === 'NOT_SIGNED'
                                   ? 'bg-slate-700 text-white'
                                   : 'bg-slate-100 border border-slate-200 text-slate-700 hover:bg-slate-200'
                               }`}
                             >
                               <span className="flex items-center gap-1.5">
-                                <span className="w-1.5 h-1.5 rounded-full bg-slate-500" />
+                                <span className="w-2 h-2 rounded-full bg-slate-500" />
                                 Sem Contrato
                               </span>
                               <span>{stats.contractual.notSigned}</span>
@@ -1646,14 +1424,14 @@ export function ProjectMap({ mapData, projectId, onRefreshData }: ProjectMapProp
                             <button
                               type="button"
                               onClick={() => setStatusFilter(statusFilter === 'DISTRATTO' ? 'ALL' : 'DISTRATTO')}
-                              className={`w-full flex items-center justify-between px-2 py-1 rounded-md text-xs font-semibold transition cursor-pointer ${
+                              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition cursor-pointer ${
                                 statusFilter === 'DISTRATTO'
                                   ? 'bg-orange-600 text-white'
                                   : 'bg-orange-50 border border-orange-200 text-orange-800 hover:bg-orange-100'
                               }`}
                             >
                               <span className="flex items-center gap-1.5">
-                                <span className="w-1.5 h-1.5 rounded-full bg-orange-500" />
+                                <span className="w-2 h-2 rounded-full bg-orange-500" />
                                 Distrato
                               </span>
                               <span>{stats.contractual.distrato}</span>
@@ -1664,14 +1442,14 @@ export function ProjectMap({ mapData, projectId, onRefreshData }: ProjectMapProp
                             <button
                               type="button"
                               onClick={() => setStatusFilter(statusFilter === 'PAID' ? 'ALL' : 'PAID')}
-                              className={`w-full flex items-center justify-between px-2 py-1 rounded-md text-xs font-semibold transition cursor-pointer ${
+                              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition cursor-pointer ${
                                 statusFilter === 'PAID'
                                   ? 'bg-emerald-700 text-white'
                                   : 'bg-emerald-50 border border-emerald-200 text-emerald-800 hover:bg-emerald-100'
                               }`}
                             >
                               <span className="flex items-center gap-1.5">
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                                <span className="w-2 h-2 rounded-full bg-emerald-500" />
                                 Quitado
                               </span>
                               <span>{stats.financial.paid}</span>
@@ -1680,14 +1458,14 @@ export function ProjectMap({ mapData, projectId, onRefreshData }: ProjectMapProp
                             <button
                               type="button"
                               onClick={() => setStatusFilter(statusFilter === 'UP_TO_DATE' ? 'ALL' : 'UP_TO_DATE')}
-                              className={`w-full flex items-center justify-between px-2 py-1 rounded-md text-xs font-semibold transition cursor-pointer ${
+                              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition cursor-pointer ${
                                 statusFilter === 'UP_TO_DATE'
                                   ? 'bg-blue-700 text-white'
                                   : 'bg-blue-50 border border-blue-200 text-blue-800 hover:bg-blue-100'
                               }`}
                             >
                               <span className="flex items-center gap-1.5">
-                                <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                                <span className="w-2 h-2 rounded-full bg-blue-500" />
                                 Em Dia
                               </span>
                               <span>{stats.financial.upToDate}</span>
@@ -1696,14 +1474,14 @@ export function ProjectMap({ mapData, projectId, onRefreshData }: ProjectMapProp
                             <button
                               type="button"
                               onClick={() => setStatusFilter(statusFilter === 'OVERDUE' ? 'ALL' : 'OVERDUE')}
-                              className={`w-full flex items-center justify-between px-2 py-1 rounded-md text-xs font-semibold transition cursor-pointer ${
+                              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition cursor-pointer ${
                                 statusFilter === 'OVERDUE'
                                   ? 'bg-red-700 text-white'
                                   : 'bg-red-50 border border-red-200 text-red-800 hover:bg-red-100'
                               }`}
                             >
                               <span className="flex items-center gap-1.5">
-                                <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+                                <span className="w-2 h-2 rounded-full bg-red-500" />
                                 Em Atraso
                               </span>
                               <span>{stats.financial.overdue}</span>
