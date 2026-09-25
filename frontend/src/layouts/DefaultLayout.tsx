@@ -20,8 +20,10 @@ import {
   Camera,
   ChevronLeft,
   ChevronRight,
+  Sparkles,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { AIAssistantModal } from '../components/AIAssistantModal';
 
 type NavItem = {
   id: string;
@@ -176,6 +178,7 @@ export function DefaultLayout() {
   const location = useLocation();
   const { user } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [isAIAssistantOpen, setIsAIAssistantOpen] = useState(false);
 
   // Estado de recolhimento da barra lateral desktop (persistido no localStorage)
   const [isCollapsed, setIsCollapsed] = useState<boolean>(() => {
@@ -545,7 +548,17 @@ export function DefaultLayout() {
               </div>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2.5">
+              <button
+                type="button"
+                onClick={() => setIsAIAssistantOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-teal-200 bg-teal-50/80 hover:bg-teal-100 text-[#0f5964] text-xs font-bold shadow-2xs transition cursor-pointer"
+                title="Abrir Assistente Gênesis IA (Google Gemini)"
+              >
+                <Sparkles size={14} className="text-[#0f5964] animate-pulse" />
+                <span>Gênesis IA</span>
+              </button>
+
               <UserDropdown
                 user={user}
                 userInitials={userInitials}
@@ -566,6 +579,25 @@ export function DefaultLayout() {
           </main>
         </div>
       </div>
+
+      {/* BOTÃO FLUTUANTE DO ASSISTENTE IA (CANTO INFERIOR DIREITO) */}
+      {!isAIAssistantOpen && (
+        <button
+          type="button"
+          onClick={() => setIsAIAssistantOpen(true)}
+          className="fixed bottom-5 right-5 z-40 bg-gradient-to-r from-[#0f5964] via-[#136b78] to-[#0f5964] hover:from-[#0c4750] hover:to-[#0f5964] text-white px-4 py-3 rounded-full shadow-2xl hover:scale-105 transition-all duration-200 flex items-center gap-2 group cursor-pointer border border-teal-300/40"
+          title="Abrir Assistente Gênesis IA (Google Gemini)"
+        >
+          <Sparkles size={18} className="text-teal-200 group-hover:rotate-12 transition-transform duration-300" />
+          <span className="text-xs font-bold tracking-wide">Gênesis IA</span>
+        </button>
+      )}
+
+      {/* MODAL / CHAT DO ASSISTENTE GEMINI */}
+      <AIAssistantModal
+        isOpen={isAIAssistantOpen}
+        onClose={() => setIsAIAssistantOpen(false)}
+      />
     </div>
   );
 }

@@ -19,6 +19,7 @@ import serviceRoutes from './routes/service.routes';
 import blockRoutes from './routes/block.routes';
 import mapRoutes from './routes/map.routes';
 import reportRoutes from './routes/reports.routes';
+import aiRoutes from './routes/ai.routes';
 import { errorHandler } from './middlewares/errorHandler';
 import { notFoundHandler } from './middlewares/notFoundHandler';
 
@@ -68,6 +69,7 @@ app.use('/api/service', serviceRoutes);
 app.use('/api/blocks', blockRoutes);
 app.use('/api/map', mapRoutes);
 app.use('/api/reports', reportRoutes);
+app.use('/api/ai', aiRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);
