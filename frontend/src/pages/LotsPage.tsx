@@ -346,20 +346,19 @@ export function LotsPage() {
   }
 
   return (
-    <div className="space-y-4 pb-16 max-w-full">
+    <div className="space-y-3 pb-12 max-w-full">
       {/* CABEÇALHO COMPACTO */}
       <PageHeader
-        breadcrumb="Operação / Quadras e lotes"
         title="Gestão de lotes"
         subtitle="Titulares, contratos e acompanhamento da regularização."
       >
         <button
           type="button"
           onClick={() => setIsLotModalOpen(true)}
-          className="flex items-center gap-1.5 rounded-lg bg-[#0f5964] hover:bg-[#0c4952] px-3.5 py-2 text-sm font-medium text-white transition shadow-xs"
+          className="flex items-center gap-1.5 rounded-lg bg-[#0f5964] hover:bg-[#0c4952] px-3.5 py-2 text-sm font-medium text-white transition shadow-xs cursor-pointer"
         >
           <Plus size={16} />
-          <span>+ Novo lote</span>
+          <span>Novo lote</span>
         </button>
       </PageHeader>
 

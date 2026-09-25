@@ -9,19 +9,19 @@ interface PageHeaderProps {
 
 export function PageHeader({ title, subtitle, breadcrumb, children }: PageHeaderProps) {
   return (
-    <div className="mb-6 space-y-2">
+    <div className="mb-3 sm:mb-4">
       {breadcrumb && (
-        <div className="text-xs font-medium text-slate-500 flex items-center gap-1.5">
+        <div className="text-xs font-medium text-slate-500 flex items-center gap-1.5 mb-1 lg:hidden">
           {breadcrumb}
         </div>
       )}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5">
         <div>
-          <h1 className="text-2xl sm:text-[26px] font-bold text-slate-900 tracking-tight">{title}</h1>
-          {subtitle && <p className="mt-0.5 text-sm text-slate-500">{subtitle}</p>}
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">{title}</h1>
+          {subtitle && <p className="mt-0.5 text-xs sm:text-sm text-slate-500">{subtitle}</p>}
         </div>
         {children && (
-          <div className="flex items-center gap-2.5 flex-wrap sm:flex-nowrap shrink-0">
+          <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap shrink-0">
             {children}
           </div>
         )}

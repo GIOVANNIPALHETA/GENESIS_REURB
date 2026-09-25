@@ -740,7 +740,7 @@ export function ProjectMap({ mapData, projectId, onRefreshData }: ProjectMapProp
   const financial = selectedFeature?.lotData?.financial;
 
   return (
-    <div className="relative w-full h-[calc(100vh-190px)] min-h-[580px] rounded-2xl overflow-hidden border border-slate-200 bg-slate-100 shadow-sm flex flex-col select-none">
+    <div className="relative w-full h-[calc(100vh-140px)] min-h-[620px] rounded-2xl overflow-hidden border border-slate-200 bg-slate-100 shadow-sm flex flex-col select-none">
       {/* ============================================================ */}
       {/* TOP GIS RIBBON / CONTROL BAR (CTMGEO STYLE)                   */}
       {/* ============================================================ */}

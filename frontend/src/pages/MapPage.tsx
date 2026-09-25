@@ -239,7 +239,7 @@ export function MapPage() {
 
       {/* Main Content Area */}
       {loadingMap ? (
-        <div className="h-[calc(100vh-190px)] min-h-[500px] flex flex-col items-center justify-center bg-white rounded-2xl border border-slate-200 shadow-xs space-y-3">
+        <div className="h-[calc(100vh-140px)] min-h-[620px] flex flex-col items-center justify-center bg-white rounded-2xl border border-slate-200 shadow-xs space-y-3">
           <RefreshCw className="w-8 h-8 text-[#0f5964] animate-spin" />
           <p className="text-sm font-medium text-slate-600">Carregando planta e ortofoto...</p>
         </div>

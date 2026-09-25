@@ -688,10 +688,9 @@ export function FinancePage() {
   }
 
   return (
-    <div className="space-y-6 pb-24">
+    <div className="space-y-4 pb-20">
       {/* CABEÇALHO COMPACTO */}
       <PageHeader
-        breadcrumb="Gestão / Financeiro"
         title="Financeiro"
         subtitle="Recebimentos, despesas e contas em um só lugar."
       >
@@ -713,10 +712,10 @@ export function FinancePage() {
               });
               setRevenueModalOpen(true);
             }}
-            className="flex items-center gap-1.5 rounded-lg bg-[#0f5964] hover:bg-[#0c4952] px-3.5 py-2 text-sm font-medium text-white transition shadow-xs"
+            className="flex items-center gap-1.5 rounded-lg bg-[#0f5964] hover:bg-[#0c4952] px-3.5 py-2 text-sm font-medium text-white transition shadow-xs cursor-pointer"
           >
             <Plus size={16} />
-            <span>+ Nova receita</span>
+            <span>Nova receita</span>
           </button>
           <button
             type="button"
@@ -724,10 +723,10 @@ export function FinancePage() {
               setEditingExpenseId(null);
               setExpenseModalOpen(true);
             }}
-            className="flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 px-3.5 py-2 text-sm font-medium text-slate-700 transition shadow-xs"
+            className="flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 px-3.5 py-2 text-sm font-medium text-slate-700 transition shadow-xs cursor-pointer"
           >
             <Plus size={16} />
-            <span>+ Nova despesa</span>
+            <span>Nova despesa</span>
           </button>
         </div>
       </PageHeader>

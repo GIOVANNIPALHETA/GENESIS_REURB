@@ -559,7 +559,7 @@ export function DefaultLayout() {
             className={`flex-1 w-full ${
               location.pathname.startsWith('/map')
                 ? 'p-2 sm:p-2.5 max-w-none flex flex-col min-w-0'
-                : 'p-4 sm:p-6 lg:p-8 max-w-[1600px] mx-auto'
+                : 'p-3 sm:p-4 lg:px-6 lg:py-4 max-w-[1600px] mx-auto'
             }`}
           >
             <Outlet />
