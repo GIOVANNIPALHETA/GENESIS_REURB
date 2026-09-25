@@ -220,6 +220,7 @@ export function AIAssistantModal({
 
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [streamingStatus, setStreamingStatus] = useState<string | null>(null);
   const [status, setStatus] = useState<AIStatus | null>(null);
   const [isExpanded, setIsExpanded] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -312,6 +313,7 @@ export function AIAssistantModal({
     setSelectedFile(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
     setLoading(true);
+    setStreamingStatus('Iniciando comunicação...');
 
     try {
       const historyPayload = messages.map((m) => ({
@@ -319,48 +321,116 @@ export function AIAssistantModal({
         content: m.content,
       }));
 
-      let res;
-
       if (currentFile) {
         // Envio com multipart/form-data
+        setStreamingStatus('Enviando documento e analisando...');
         const formData = new FormData();
         formData.append('message', prompt || `Envio de documento para cadastro.`);
         formData.append('history', JSON.stringify(historyPayload));
         formData.append('file', currentFile);
 
-        res = await axios.post('/api/ai/chat', formData, {
+        const res = await axios.post('/api/ai/chat', formData, {
           headers: { 'Content-Type': 'multipart/form-data' },
         });
+
+        const data = res.data?.data;
+        const botMsg: ChatMessage = {
+          id: `bot-${Date.now()}`,
+          role: 'assistant',
+          content: data?.text || 'Sem resposta do assistente.',
+          toolCalls: data?.toolCallsExecuted || [],
+          timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+        };
+        setMessages((prev) => [...prev, botMsg]);
       } else {
-        // Envio padrão JSON
-        res = await axios.post('/api/ai/chat', {
-          message: prompt,
-          history: historyPayload,
+        // STREAMING EM TEMPO REAL VIA SERVER-SENT EVENTS (SSE)
+        const botMsgId = `bot-${Date.now()}`;
+        const botMsg: ChatMessage = {
+          id: botMsgId,
+          role: 'assistant',
+          content: '',
+          toolCalls: [],
+          timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+        };
+        setMessages((prev) => [...prev, botMsg]);
+
+        const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+        const response = await fetch('/api/ai/chat/stream', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({
+            message: prompt,
+            history: historyPayload,
+          }),
         });
+
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData?.message || 'Falha ao conectar com o serviço do assistente.');
+        }
+
+        const reader = response.body?.getReader();
+        if (!reader) throw new Error('Streaming não suportado.');
+
+        const decoder = new TextDecoder('utf-8');
+        let accumulatedText = '';
+        const executedTools = new Set<string>();
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value, { stream: true });
+          const lines = chunk.split('\n');
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const dataStr = line.slice(6).trim();
+              if (!dataStr) continue;
+
+              try {
+                const payload = JSON.parse(dataStr);
+                if (payload.type === 'token') {
+                  accumulatedText += payload.content;
+                  setMessages((prev) =>
+                    prev.map((m) => (m.id === botMsgId ? { ...m, content: accumulatedText } : m))
+                  );
+                } else if (payload.type === 'tool') {
+                  executedTools.add(payload.toolName);
+                  setMessages((prev) =>
+                    prev.map((m) =>
+                      m.id === botMsgId ? { ...m, toolCalls: Array.from(executedTools) } : m
+                    )
+                  );
+                } else if (payload.type === 'status') {
+                  setStreamingStatus(payload.message);
+                } else if (payload.type === 'error') {
+                  throw new Error(payload.message);
+                }
+              } catch {
+                // Ignore boundary splits
+              }
+            }
+          }
+        }
       }
-
-      const data = res.data?.data;
-      const botMsg: ChatMessage = {
-        id: `bot-${Date.now()}`,
-        role: 'assistant',
-        content: data?.text || 'Sem resposta do assistente.',
-        toolCalls: data?.toolCallsExecuted || [],
-        timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-      };
-
-      setMessages((prev) => [...prev, botMsg]);
     } catch (err: any) {
       const errorMsg: ChatMessage = {
         id: `err-${Date.now()}`,
         role: 'assistant',
         content:
           err?.response?.data?.message ||
+          err?.message ||
           'Desculpe, ocorreu um erro ao se comunicar com o Google Gemini. Verifique a chave de API ou tente novamente.',
         timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
       };
       setMessages((prev) => [...prev, errorMsg]);
     } finally {
       setLoading(false);
+      setStreamingStatus(null);
     }
   };
 
@@ -500,8 +570,14 @@ export function AIAssistantModal({
                 {/* Content */}
                 {msg.role === 'user' ? (
                   <p className="text-xs sm:text-sm whitespace-pre-wrap">{msg.content}</p>
-                ) : (
+                ) : msg.content ? (
                   renderMarkdown(msg.content)
+                ) : (
+                  <div className="flex items-center gap-1.5 py-1 px-0.5 text-teal-600">
+                    <span className="h-1.5 w-1.5 rounded-full bg-[#0f5964] animate-bounce [animation-delay:-0.3s]"></span>
+                    <span className="h-1.5 w-1.5 rounded-full bg-[#0f5964] animate-bounce [animation-delay:-0.15s]"></span>
+                    <span className="h-1.5 w-1.5 rounded-full bg-[#0f5964] animate-bounce"></span>
+                  </div>
                 )}
               </div>
 
@@ -511,18 +587,18 @@ export function AIAssistantModal({
             </div>
           ))}
 
-          {/* Thinking / Loading Indicator */}
-          {loading && (
+          {/* Thinking / Streaming Status Indicator */}
+          {loading && streamingStatus && (
             <div className="flex items-start gap-2 animate-in fade-in duration-200">
-              <div className="bg-white border border-slate-200 rounded-2xl rounded-bl-none p-3 shadow-2xs flex items-center gap-2.5">
-                <Sparkles size={16} className="text-[#0f5964] animate-spin" />
-                <span className="text-xs text-slate-600 font-medium">
-                  Processando com o Gemini e atualizando o sistema...
+              <div className="bg-white border border-teal-200/80 rounded-2xl rounded-bl-none px-3 py-2 shadow-2xs flex items-center gap-2">
+                <Sparkles size={14} className="text-[#0f5964] animate-spin shrink-0" />
+                <span className="text-xs text-slate-700 font-medium">
+                  {streamingStatus}
                 </span>
                 <span className="flex gap-1 ml-1">
-                  <span className="h-1.5 w-1.5 rounded-full bg-teal-500 animate-bounce [animation-delay:-0.3s]"></span>
-                  <span className="h-1.5 w-1.5 rounded-full bg-teal-500 animate-bounce [animation-delay:-0.15s]"></span>
-                  <span className="h-1.5 w-1.5 rounded-full bg-teal-500 animate-bounce"></span>
+                  <span className="h-1 w-1 rounded-full bg-teal-500 animate-bounce [animation-delay:-0.3s]"></span>
+                  <span className="h-1 w-1 rounded-full bg-teal-500 animate-bounce [animation-delay:-0.15s]"></span>
+                  <span className="h-1 w-1 rounded-full bg-teal-500 animate-bounce"></span>
                 </span>
               </div>
             </div>

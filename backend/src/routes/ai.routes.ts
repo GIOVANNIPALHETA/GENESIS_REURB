@@ -2,7 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import { chatHandler, statusHandler } from '../controllers/ai.controller';
+import { chatHandler, chatStreamHandler, statusHandler } from '../controllers/ai.controller';
 import { authenticate } from '../middlewares/authMiddleware';
 
 const router = Router();
@@ -16,5 +16,6 @@ router.use(authenticate);
 
 router.get('/status', statusHandler);
 router.post('/chat', upload.single('file'), chatHandler);
+router.post('/chat/stream', chatStreamHandler);
 
 export default router;

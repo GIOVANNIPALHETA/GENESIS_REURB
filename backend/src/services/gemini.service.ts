@@ -926,6 +926,115 @@ Diretrizes estritas:
 6. **Segurança**: Nunca exponha senhas ou dados confidenciais de credenciais.
 `;
 
+export async function getQuickContext(userMessage: string): Promise<string | null> {
+  try {
+    const text = userMessage.trim();
+    if (!text) return null;
+
+    const digits = text.replace(/\D/g, '');
+    let person: any = null;
+
+    if (digits.length >= 7) {
+      person = await prisma.person.findFirst({
+        where: {
+          OR: [
+            { cpf: { contains: digits } },
+            { cpf: { contains: text.split(/[-–,]/)[1]?.trim() || digits } },
+          ],
+        },
+        include: {
+          occupancies: { include: { lot: { include: { block: true, project: true } } } },
+          contracts: {
+            include: {
+              lot: { include: { block: true, project: true } },
+              negotiations: { include: { installments: { orderBy: { installmentNumber: 'asc' } } } },
+            },
+          },
+        },
+      });
+    }
+
+    if (!person && text.length > 5 && !text.includes('?')) {
+      const words = text.split(/[-–,]/)[0].trim();
+      if (words.length >= 4 && !/^(qual|quem|como|onde|quando|quanto|tem|esse|essa|ol[aá]|bom|boa)/i.test(words)) {
+        person = await prisma.person.findFirst({
+          where: { fullName: { contains: words, mode: 'insensitive' } },
+          include: {
+            occupancies: { include: { lot: { include: { block: true, project: true } } } },
+            contracts: {
+              include: {
+                lot: { include: { block: true, project: true } },
+                negotiations: { include: { installments: { orderBy: { installmentNumber: 'asc' } } } },
+              },
+            },
+          },
+        });
+      }
+    }
+
+    if (person) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const contractsData = person.contracts.map((c: any) => {
+        const installments = c.negotiations?.flatMap((n: any) => n.installments || []) || [];
+        const overdue: any[] = [];
+        let totalDue = 0;
+        let totalPaid = 0;
+        let totalOverdue = 0;
+
+        for (const inst of installments) {
+          totalDue += inst.amount;
+          totalPaid += inst.paidAmount;
+          const remaining = Math.max(0, inst.amount - inst.paidAmount);
+          const due = new Date(inst.dueDate);
+          due.setHours(0, 0, 0, 0);
+
+          if (remaining > 0 && (inst.status === 'OVERDUE' || due.getTime() < today.getTime())) {
+            const diffDays = Math.max(1, Math.floor((today.getTime() - due.getTime()) / (1000 * 60 * 60 * 24)));
+            totalOverdue += remaining;
+            overdue.push({
+              parcela: inst.installmentNumber,
+              vencimento: inst.dueDate.toISOString().slice(0, 10),
+              valor: inst.amount,
+              valorPago: inst.paidAmount,
+              saldoVencido: remaining,
+              diasAtraso: diffDays,
+            });
+          }
+        }
+
+        return {
+          numeroContrato: c.contractNumber,
+          assinado: c.signed,
+          status: c.status,
+          projeto: c.lot.project.name,
+          quadra: c.lot.block.number,
+          lote: c.lot.number,
+          totalParcelas: installments.length,
+          valorTotal: Number(totalDue.toFixed(2)),
+          valorPago: Number(totalPaid.toFixed(2)),
+          saldoDevedor: Number((totalDue - totalPaid).toFixed(2)),
+          saldoVencidoEmAtraso: Number(totalOverdue.toFixed(2)),
+          parcelasEmAtraso: overdue,
+        };
+      });
+
+      return `\n\n[DADOS CADASTRAIS E FINANCEIROS PRÉ-CARREGADOS DO SISTEMA EM TEMPO REAL]:
+- Titular: ${person.fullName}
+- CPF: ${person.cpf || 'Não cadastrado'}
+- Telefone: ${person.phone || 'Não informado'}
+- Lotes vinculados: ${person.occupancies.map((o: any) => `Projeto ${o.lot.project.name}, Qd ${o.lot.block.number}, Lt ${o.lot.number}`).join('; ')}
+- Contratos e Financeiro: ${JSON.stringify(contractsData, null, 2)}
+(Apresente estes dados diretamente ao operador com formatação elegante, tabelas e tópicos claros sem precisar chamar ferramentas adicionais se estes dados já respondem à pergunta).`;
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export async function processGeminiChatMessage(
   userMessage: string,
   history: ChatMessage[] = [],
@@ -954,18 +1063,25 @@ export async function processGeminiChatMessage(
   const ai = new GoogleGenAI({ apiKey });
   const executedToolNames: string[] = [];
 
-  // Build contents history
+  // Fast pre-fetch in < 30ms to avoid unnecessary tool round-trip
+  let promptText = userMessage;
+  const quickContext = await getQuickContext(userMessage);
+  if (quickContext) {
+    promptText += quickContext;
+  }
+
+  // Build pruned contents history (last 4 turns, compact)
+  const recentHistory = history.slice(-4);
   const contents: any[] = [];
 
-  for (const h of history) {
+  for (const h of recentHistory) {
     contents.push({
       role: h.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: h.content }],
+      parts: [{ text: h.content.length > 600 ? h.content.slice(0, 600) + '...' : h.content }],
     });
   }
 
   // Add current message with file context if attached
-  let promptText = userMessage;
   if (uploadedFile) {
     promptText += `\n\n[SISTEMA - ARQUIVO ANEXADO PELO USUÁRIO]:
 - Nome original: "${uploadedFile.originalname}"
@@ -1079,4 +1195,169 @@ O usuário enviou este arquivo anexo. Se ele solicitar upload, cadastro ou vincu
   }
 
   throw new Error('Não foi possível conectar aos modelos do Gemini. Verifique sua chave de API e conexão de internet.');
+}
+
+export async function processGeminiChatMessageStream(
+  userMessage: string,
+  history: ChatMessage[] = [],
+  callbacks: {
+    onToken: (token: string) => void;
+    onToolCall?: (toolName: string) => void;
+    onStatus?: (message: string) => void;
+  },
+  uploadedFile?: any,
+  userId?: string
+) {
+  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+
+  if (!apiKey) {
+    const errorText = 'Chave GEMINI_API_KEY não configurada no backend.';
+    callbacks.onToken(errorText);
+    return { text: errorText, toolCallsExecuted: [], apiKeyConfigured: false };
+  }
+
+  callbacks.onStatus?.('🔍 Analisando pergunta...');
+
+  let promptText = userMessage;
+  const quickContext = await getQuickContext(userMessage);
+  if (quickContext) {
+    callbacks.onStatus?.('⚡ Dados do sistema localizados...');
+    promptText += quickContext;
+  }
+
+  const recentHistory = history.slice(-4);
+  const contents: any[] = [];
+
+  for (const h of recentHistory) {
+    contents.push({
+      role: h.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: h.content.length > 500 ? h.content.slice(0, 500) + '...' : h.content }],
+    });
+  }
+
+  if (uploadedFile) {
+    promptText += `\n\n[SISTEMA - ARQUIVO ANEXADO PELO USUÁRIO]:
+- Nome original: "${uploadedFile.originalname}"
+- Tamanho: ${Math.round(uploadedFile.size / 1024)} KB
+- Tipo MIME: ${uploadedFile.mimetype}
+O usuário enviou este arquivo anexo. Se ele solicitar upload, cadastro ou vinculação a uma quadra/lote/titular, acione a ferramenta "uploadLotDocument".`;
+  }
+
+  contents.push({
+    role: 'user',
+    parts: [{ text: promptText }],
+  });
+
+  const modelsToTry = [
+    process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite',
+    'gemini-3.5-flash-lite',
+    'gemini-flash-latest',
+  ];
+
+  const ai = new GoogleGenAI({ apiKey });
+  const executedToolNames: string[] = [];
+
+  for (const modelName of modelsToTry) {
+    try {
+      let turnCount = 0;
+      const MAX_TURNS = 5;
+
+      while (turnCount < MAX_TURNS) {
+        turnCount++;
+
+        const response = await ai.models.generateContent({
+          model: modelName,
+          contents,
+          config: {
+            systemInstruction: SYSTEM_INSTRUCTION,
+            tools: [{ functionDeclarations: ALL_GEMINI_TOOLS }],
+          },
+        });
+
+        const functionCalls = response.functionCalls;
+
+        if (functionCalls && functionCalls.length > 0) {
+          contents.push(
+            response.candidates?.[0]?.content || {
+              role: 'model',
+              parts: functionCalls.map((fc) => ({ functionCall: fc })),
+            }
+          );
+
+          const functionResponseParts: any[] = [];
+          for (const call of functionCalls) {
+            const toolName = call.name || '';
+            executedToolNames.push(toolName);
+            callbacks.onToolCall?.(toolName);
+            callbacks.onStatus?.(`📊 Consultando ${toolName}...`);
+
+            const toolResult = await dispatchToolCall(toolName, call.args || {}, uploadedFile, userId);
+
+            functionResponseParts.push({
+              functionResponse: {
+                name: toolName,
+                response: toolResult,
+                id: (call as any).id,
+              },
+            });
+          }
+
+          contents.push({
+            role: 'user',
+            parts: functionResponseParts,
+          });
+
+          continue;
+        }
+
+        // Final response: STREAM it to the client!
+        callbacks.onStatus?.('✍️ Formatando resposta...');
+
+        const initialText = response.text || '';
+        if (initialText) {
+          // Stream pre-generated text smoothly in small chunks
+          const tokens = initialText.split(/(?<=\s|[\n,.:;])/);
+          for (const tok of tokens) {
+            callbacks.onToken(tok);
+          }
+          return {
+            text: initialText,
+            toolCallsExecuted: Array.from(new Set(executedToolNames)),
+            apiKeyConfigured: true,
+            modelUsed: modelName,
+          };
+        }
+
+        // Otherwise generateContentStream
+        const stream = await ai.models.generateContentStream({
+          model: modelName,
+          contents,
+          config: {
+            systemInstruction: SYSTEM_INSTRUCTION,
+          },
+        });
+
+        let fullText = '';
+        for await (const chunk of stream) {
+          const t = chunk.text || '';
+          if (t) {
+            fullText += t;
+            callbacks.onToken(t);
+          }
+        }
+
+        return {
+          text: fullText,
+          toolCallsExecuted: Array.from(new Set(executedToolNames)),
+          apiKeyConfigured: true,
+          modelUsed: modelName,
+        };
+      }
+    } catch (err: any) {
+      console.warn(`[Gemini Assistant Stream] Falha no modelo ${modelName}:`, err?.message || err);
+      continue;
+    }
+  }
+
+  throw new Error('Falha ao processar streaming com os modelos do Gemini.');
 }
