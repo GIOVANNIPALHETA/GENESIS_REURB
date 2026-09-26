@@ -343,7 +343,7 @@ export function AIAssistantModal({
         };
         setMessages((prev) => [...prev, botMsg]);
       } else {
-        // STREAMING EM TEMPO REAL VIA SERVER-SENT EVENTS (SSE)
+        // STREAMING EM TEMPO REAL VIA SERVER-SENT EVENTS (SSE) COM FALLBACK E TIMEOUT
         const botMsgId = `bot-${Date.now()}`;
         const botMsg: ChatMessage = {
           id: botMsgId,
@@ -354,80 +354,132 @@ export function AIAssistantModal({
         };
         setMessages((prev) => [...prev, botMsg]);
 
-        const token = localStorage.getItem('token') || sessionStorage.getItem('token');
-        const response = await fetch('/api/ai/chat/stream', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify({
-            message: prompt,
-            history: historyPayload,
-          }),
-        });
-
-        if (!response.ok) {
-          const errData = await response.json().catch(() => ({}));
-          throw new Error(errData?.message || 'Falha ao conectar com o serviço do assistente.');
-        }
-
-        const reader = response.body?.getReader();
-        if (!reader) throw new Error('Streaming não suportado.');
-
-        const decoder = new TextDecoder('utf-8');
         let accumulatedText = '';
         const executedTools = new Set<string>();
 
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
+        // AbortController com timeout de 35 segundos para garantir que nunca trave
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 35000);
 
-          const chunk = decoder.decode(value, { stream: true });
-          const lines = chunk.split('\n');
+        try {
+          const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+          const response = await fetch('/api/ai/chat/stream', {
+            method: 'POST',
+            signal: controller.signal,
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify({
+              message: prompt,
+              history: historyPayload,
+            }),
+          });
 
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              const dataStr = line.slice(6).trim();
-              if (!dataStr) continue;
+          clearTimeout(timeoutId);
 
-              try {
-                const payload = JSON.parse(dataStr);
-                if (payload.type === 'token') {
-                  accumulatedText += payload.content;
-                  setMessages((prev) =>
-                    prev.map((m) => (m.id === botMsgId ? { ...m, content: accumulatedText } : m))
-                  );
-                } else if (payload.type === 'tool') {
-                  executedTools.add(payload.toolName);
-                  setMessages((prev) =>
-                    prev.map((m) =>
-                      m.id === botMsgId ? { ...m, toolCalls: Array.from(executedTools) } : m
-                    )
-                  );
-                } else if (payload.type === 'status') {
-                  setStreamingStatus(payload.message);
-                } else if (payload.type === 'error') {
-                  throw new Error(payload.message);
+          if (!response.ok) {
+            const errData = await response.json().catch(() => ({}));
+            throw new Error(errData?.message || 'Falha ao conectar com o serviço do assistente.');
+          }
+
+          const reader = response.body?.getReader();
+          if (!reader) throw new Error('Streaming não suportado.');
+
+          const decoder = new TextDecoder('utf-8');
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            const chunk = decoder.decode(value, { stream: true });
+            const lines = chunk.split('\n');
+
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                const dataStr = line.slice(6).trim();
+                if (!dataStr) continue;
+
+                try {
+                  const payload = JSON.parse(dataStr);
+                  if (payload.type === 'token') {
+                    accumulatedText += payload.content;
+                    setMessages((prev) =>
+                      prev.map((m) => (m.id === botMsgId ? { ...m, content: accumulatedText } : m))
+                    );
+                  } else if (payload.type === 'tool') {
+                    executedTools.add(payload.toolName);
+                    setMessages((prev) =>
+                      prev.map((m) =>
+                        m.id === botMsgId ? { ...m, toolCalls: Array.from(executedTools) } : m
+                      )
+                    );
+                  } else if (payload.type === 'status') {
+                    setStreamingStatus(payload.message);
+                  } else if (payload.type === 'error') {
+                    throw new Error(payload.message);
+                  }
+                } catch {
+                  // Ignore boundary JSON parse splits
                 }
-              } catch {
-                // Ignore boundary splits
               }
             }
           }
+        } catch (streamErr: any) {
+          clearTimeout(timeoutId);
+          // Se falhar o streaming e nenhum token foi recebido, tenta fallback para POST normal
+          if (!accumulatedText) {
+            setStreamingStatus('Obtendo resposta alternativa...');
+            try {
+              const fallbackRes = await axios.post(
+                '/api/ai/chat',
+                {
+                  message: prompt,
+                  history: historyPayload,
+                },
+                { timeout: 30000 }
+              );
+
+              const fallbackData = fallbackRes.data?.data;
+              if (fallbackData?.text) {
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === botMsgId
+                      ? {
+                          ...m,
+                          content: fallbackData.text,
+                          toolCalls: fallbackData.toolCallsExecuted || [],
+                        }
+                      : m
+                  )
+                );
+                return;
+              }
+            } catch {
+              // Fallback também falhou, propaga erro abaixo
+            }
+          }
+
+          // Se já havia texto parcial, avisa; caso contrário, atualiza a mensagem vazia
+          const errorText =
+            streamErr?.name === 'AbortError'
+              ? 'A solicitação demorou mais que o esperado. Por favor, tente novamente ou formule de forma mais direta.'
+              : streamErr?.message || 'Desculpe, ocorreu uma instabilidade ao conectar com o Gemini.';
+
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === botMsgId
+                ? {
+                    ...m,
+                    content: accumulatedText ? `${accumulatedText}\n\n*(Conexão finalizada)*` : errorText,
+                  }
+                : m
+            )
+          );
         }
       }
     } catch (err: any) {
-      const errorMsg: ChatMessage = {
-        id: `err-${Date.now()}`,
-        role: 'assistant',
-        content:
-          err?.response?.data?.message ||
-          err?.message ||
-          'Desculpe, ocorreu um erro ao se comunicar com o Google Gemini. Verifique a chave de API ou tente novamente.',
-        timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-      };
-      setMessages((prev) => [...prev, errorMsg]);
+      console.error('[AI Modal] Erro:', err);
     } finally {
       setLoading(false);
       setStreamingStatus(null);
