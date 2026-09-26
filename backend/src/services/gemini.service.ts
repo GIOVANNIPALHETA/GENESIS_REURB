@@ -1,6 +1,7 @@
 import { GoogleGenAI, Type, FunctionDeclaration } from '@google/genai';
 import { prisma } from '../prisma/client';
 import { syncDocumentAdded } from './googleDriveSync.service';
+import { notifyDocumentUploaded } from './whatsappNotification.service';
 
 export interface ChatMessage {
   role: 'user' | 'model' | 'assistant';
@@ -628,20 +629,15 @@ async function executeGetFinancialSummary(args: any) {
 }
 
 async function executeSearchPerson(args: any) {
-  let query = String(args.query || '').trim();
+  const query = String(args.query || '').trim();
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-
-  // Clean titles and prefixes (e.g. "o sr jhorbson", "sr jhorbson", "senhor jhorbson")
-  const cleanedQuery = query.replace(/^(o\s+|a\s+)?(sr|sra|senhor|senhora|dr|dra|dona|seu)\.?\s+/i, '').trim();
-  const searchPattern = cleanedQuery || query;
 
   const people = await prisma.person.findMany({
     where: {
       OR: [
-        { fullName: { contains: searchPattern, mode: 'insensitive' } },
         { fullName: { contains: query, mode: 'insensitive' } },
-        { cpf: { contains: query.replace(/\D/g, '') || query } },
+        { cpf: { contains: query } },
       ],
     },
     include: {
@@ -871,6 +867,19 @@ async function executeUploadLotDocument(
     console.error('[Gemini AI Upload] Erro ao sincronizar com Google Drive:', err)
   );
 
+  // Notify WhatsApp Admin in background
+  try {
+    notifyDocumentUploaded({
+      documentType: category,
+      originalName: uploadedFile.originalname,
+      personName: personFullName || 'Titular do lote',
+      projectName: lot.project.name,
+      blockNumber: lot.block.number,
+      lotNumber: lot.number,
+      source: 'Assistente IA Gemini',
+    });
+  } catch {}
+
   return {
     success: true,
     documentId: doc.id,
@@ -939,7 +948,6 @@ export async function getQuickContext(userMessage: string): Promise<string | nul
     const digits = text.replace(/\D/g, '');
     let person: any = null;
 
-    // 1. Search by CPF if 7+ digits provided
     if (digits.length >= 7) {
       person = await prisma.person.findFirst({
         where: {
@@ -960,38 +968,11 @@ export async function getQuickContext(userMessage: string): Promise<string | nul
       });
     }
 
-    // 2. Search Person by name token (smart Portuguese stopwords filter)
-    if (!person) {
-      const cleaned = text
-        .toLowerCase()
-        .replace(/[?.,!;:"'()\[\]{}–—\-\/\\#]/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-
-      const stopWords = new Set([
-        'o', 'a', 'os', 'as', 'um', 'uma', 'uns', 'umas',
-        'de', 'do', 'da', 'dos', 'das', 'no', 'na', 'nos', 'nas', 'em', 'por', 'para', 'com', 'sem',
-        'sr', 'sra', 'senhor', 'senhora', 'dr', 'dra', 'dona', 'seu', 'sua', 'seus', 'suas',
-        'tem', 'tinha', 'ter', 'esta', 'está', 'estao', 'estão', 'foi', 'ser',
-        'quantas', 'quantos', 'quanto', 'quanta', 'qual', 'quais', 'quem', 'onde', 'como', 'quando',
-        'porque', 'por que', 'sobre', 'esse', 'essa', 'este', 'esta', 'aquele', 'aquela',
-        'parcela', 'parcelas', 'aberto', 'aberta', 'abertos', 'abertas', 'atraso', 'atrasado', 'atrasada',
-        'vencido', 'vencida', 'vencidos', 'vencidas', 'pago', 'pagos', 'pagou', 'pagamento',
-        'contrato', 'contratos', 'lote', 'lotes', 'quadra', 'quadras', 'projeto', 'loteamento',
-        'financeiro', 'financeira', 'situacao', 'situação', 'status', 'extrato',
-        'verificar', 'consultar', 'buscar', 'pesquisar', 'saber', 'informar', 'listar', 'mostrar', 'ver',
-        'favor', 'ola', 'olá', 'oi', 'bom', 'dia', 'boa', 'tarde', 'noite',
-        'me', 'te', 'lhe', 'nos', 'diga', 'fale', 'explique', 'cliente', 'titular', 'morador', 'comprador',
-        'valor', 'valores', 'total', 'saldo', 'devedor', 'divida', 'dívida'
-      ]);
-
-      const tokens = cleaned.split(' ').filter((w) => w.length >= 3 && !stopWords.has(w));
-
-      for (const tok of tokens) {
+    if (!person && text.length > 5 && !text.includes('?')) {
+      const words = text.split(/[-–,]/)[0].trim();
+      if (words.length >= 4 && !/^(qual|quem|como|onde|quando|quanto|tem|esse|essa|ol[aá]|bom|boa)/i.test(words)) {
         person = await prisma.person.findFirst({
-          where: {
-            fullName: { contains: tok, mode: 'insensitive' },
-          },
+          where: { fullName: { contains: words, mode: 'insensitive' } },
           include: {
             occupancies: { include: { lot: { include: { block: true, project: true } } } },
             contracts: {
@@ -1002,7 +983,6 @@ export async function getQuickContext(userMessage: string): Promise<string | nul
             },
           },
         });
-        if (person) break;
       }
     }
 
@@ -1063,48 +1043,6 @@ export async function getQuickContext(userMessage: string): Promise<string | nul
 (Apresente estes dados diretamente ao operador com formatação elegante, tabelas e tópicos claros sem precisar chamar ferramentas adicionais se estes dados já respondem à pergunta).`;
     }
 
-    // 3. Search Quadra & Lote mention
-    const qdLtoMatch =
-      text.match(/(?:quadra|qd)\.?\s*([a-zA-Z0-9_-]+).*?(?:lote|lt)\.?\s*([a-zA-Z0-9_-]+)/i) ||
-      text.match(/(?:lote|lt)\.?\s*([a-zA-Z0-9_-]+).*?(?:quadra|qd)\.?\s*([a-zA-Z0-9_-]+)/i);
-
-    if (qdLtoMatch) {
-      const isQdFirst = /quadra|qd/i.test(qdLtoMatch[0].slice(0, 10));
-      const bNum = isQdFirst ? qdLtoMatch[1] : qdLtoMatch[2];
-      const lNum = isQdFirst ? qdLtoMatch[2] : qdLtoMatch[1];
-      const bVariants = getNumberVariants(bNum);
-      const lVariants = getNumberVariants(lNum);
-
-      const lot = await prisma.lot.findFirst({
-        where: {
-          number: { in: lVariants, mode: 'insensitive' },
-          block: { number: { in: bVariants, mode: 'insensitive' } },
-          active: true,
-        },
-        include: {
-          project: true,
-          block: true,
-          occupancies: { include: { person: true } },
-          contracts: {
-            include: {
-              person: true,
-              negotiations: { include: { installments: { orderBy: { installmentNumber: 'asc' } } } },
-            },
-          },
-        },
-      });
-
-      if (lot) {
-        const occupant = lot.occupancies?.[0]?.person;
-        const contract = lot.contracts?.[0];
-        return `\n\n[DADOS DO LOTE PRÉ-CARREGADOS DO SISTEMA]:
-- Projeto: ${lot.project.name}
-- Quadra: ${lot.block.number} | Lote: ${lot.number}
-- Titular: ${occupant?.fullName || 'Sem titular'} (CPF: ${occupant?.cpf || 'N/A'})
-- Contrato: ${contract?.contractNumber || 'Sem contrato'} (Status: ${contract?.status || 'N/A'}, Assinado: ${contract?.signed ? 'Sim' : 'Não'})`;
-      }
-    }
-
     return null;
   } catch {
     return null;
@@ -1127,10 +1065,13 @@ export async function processGeminiChatMessage(
     };
   }
 
+  // Model hierarchy: Prefer fast and reliable gemini-3.5-flash-lite, fallback to gemini-3.5-flash or gemini-3.8-flash
   const modelsToTry = [
     process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite',
     'gemini-3.5-flash-lite',
+    'gemini-3.5-flash',
     'gemini-3.8-flash',
+    'gemini-flash-latest',
   ];
 
   const ai = new GoogleGenAI({ apiKey });
@@ -1167,32 +1108,6 @@ O usuário enviou este arquivo anexo. Se ele solicitar upload, cadastro ou vincu
     role: 'user',
     parts: [{ text: promptText }],
   });
-
-  // Direct fast-path: If database pre-fetch already has the exact answers, answer directly
-  if (quickContext && !uploadedFile) {
-    for (const modelName of modelsToTry) {
-      try {
-        const response = await ai.models.generateContent({
-          model: modelName,
-          contents,
-          config: {
-            systemInstruction: SYSTEM_INSTRUCTION,
-          },
-        });
-        if (response.text) {
-          return {
-            text: response.text,
-            toolCallsExecuted: ['consultaRapidaBancoDeDados'],
-            apiKeyConfigured: true,
-            modelUsed: modelName,
-          };
-        }
-      } catch (err: any) {
-        console.warn(`[Gemini FastPath] Falha no modelo ${modelName}:`, err?.message || err);
-        continue;
-      }
-    }
-  }
 
   for (const modelName of modelsToTry) {
     try {
@@ -1350,46 +1265,11 @@ O usuário enviou este arquivo anexo. Se ele solicitar upload, cadastro ou vincu
   const modelsToTry = [
     process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite',
     'gemini-3.5-flash-lite',
-    'gemini-3.8-flash',
+    'gemini-flash-latest',
   ];
 
   const ai = new GoogleGenAI({ apiKey });
   const executedToolNames: string[] = [];
-
-  // DIRECT STREAMING FAST-PATH: If quickContext already resolved the query, stream immediately in < 1 second!
-  if (quickContext && !uploadedFile) {
-    callbacks.onStatus?.('✍️ Formatando resposta...');
-    for (const modelName of modelsToTry) {
-      try {
-        const stream = await ai.models.generateContentStream({
-          model: modelName,
-          contents,
-          config: {
-            systemInstruction: SYSTEM_INSTRUCTION,
-          },
-        });
-
-        let fullText = '';
-        for await (const chunk of stream) {
-          const t = chunk.text || '';
-          if (t) {
-            fullText += t;
-            callbacks.onToken(t);
-          }
-        }
-
-        return {
-          text: fullText,
-          toolCallsExecuted: ['consultaRapidaBancoDeDados'],
-          apiKeyConfigured: true,
-          modelUsed: modelName,
-        };
-      } catch (err: any) {
-        console.warn(`[Fast Stream Direct] Erro no modelo ${modelName}:`, err?.message || err);
-        continue;
-      }
-    }
-  }
 
   for (const modelName of modelsToTry) {
     try {

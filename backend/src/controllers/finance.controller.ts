@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { ExpenseStatus, PaymentMethod, PaymentStatus } from '@prisma/client';
 import { z } from 'zod';
 import { prisma } from '../prisma/client';
+import { notifyPaymentReceived } from '../services/whatsappNotification.service';
 
 const paymentSchema = z.object({
   amount: z.number().positive(),
@@ -123,7 +124,21 @@ export async function registerPayment(req: Request, res: Response) {
   }
 
   try {
-    const installment = await prisma.installment.findUnique({ where: { id: req.params.id } });
+    const installment = await prisma.installment.findUnique({
+      where: { id: req.params.id },
+      include: {
+        negotiation: {
+          include: {
+            contract: {
+              include: {
+                person: true,
+                lot: { include: { block: true, project: true } },
+              },
+            },
+          },
+        },
+      },
+    });
     if (!installment)
       return res.status(404).json({ success: false, data: null, message: 'Parcela não encontrada' });
 
@@ -171,6 +186,20 @@ export async function registerPayment(req: Request, res: Response) {
       });
       return created;
     });
+
+    // Notify WhatsApp Admin in background
+    try {
+      notifyPaymentReceived({
+        amount: result.data.amount,
+        installmentNumber: installment.installmentNumber,
+        paymentMethod: result.data.paymentMethod,
+        personName: installment.negotiation?.contract?.person?.fullName,
+        projectName: installment.negotiation?.contract?.lot?.project?.name,
+        blockNumber: installment.negotiation?.contract?.lot?.block?.number,
+        lotNumber: installment.negotiation?.contract?.lot?.number,
+        operatorName: (req as any).user?.name,
+      });
+    } catch {}
 
     return res.status(201).json({ success: true, data: payment, message: 'Pagamento registrado' });
   } catch {
@@ -427,6 +456,41 @@ export async function createManualPayment(req: Request, res: Response) {
 
       return created;
     });
+
+    // Notify WhatsApp Admin in background
+    try {
+      if (lotId) {
+        prisma.lot
+          .findUnique({
+            where: { id: lotId },
+            include: {
+              project: true,
+              block: true,
+              occupancies: { include: { person: true }, where: { current: true } },
+            },
+          })
+          .then((l) => {
+            if (l) {
+              notifyPaymentReceived({
+                amount: data.amount,
+                paymentMethod: data.paymentMethod,
+                personName: l.occupancies?.[0]?.person?.fullName,
+                projectName: l.project?.name,
+                blockNumber: l.block?.number,
+                lotNumber: l.number,
+                operatorName: (req as any).user?.name,
+              });
+            }
+          })
+          .catch(() => {});
+      } else {
+        notifyPaymentReceived({
+          amount: data.amount,
+          paymentMethod: data.paymentMethod,
+          operatorName: (req as any).user?.name,
+        });
+      }
+    } catch {}
 
     return res.status(201).json({ success: true, data: payment, message: 'Receita registrada com sucesso!' });
   } catch (error: any) {

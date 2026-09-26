@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { z } from 'zod';
 import { prisma } from '../prisma/client';
 import { syncLotOwnerChanged } from '../services/googleDriveSync.service';
+import { notifyOccupantChanged } from '../services/whatsappNotification.service';
 
 const ownerSchema = z.object({
   fullName: z.string().min(1),
@@ -351,6 +352,27 @@ export async function updateLot(req: Request, res: Response) {
     syncLotOwnerChanged(lot.id).catch((err) =>
       console.error('[LotController] Erro ao sincronizar alteração de pasta no Drive:', err)
     );
+
+    // Notifica WhatsApp em background se houve alteração de titular
+    if (owner?.fullName) {
+      (async () => {
+        try {
+          const l = await prisma.lot.findUnique({
+            where: { id: lot.id },
+            include: { project: true, block: true },
+          });
+          notifyOccupantChanged({
+            personName: owner.fullName,
+            cpf: owner.cpf,
+            projectName: l?.project?.name,
+            blockNumber: l?.block?.number,
+            lotNumber: l?.number,
+            action: 'ALTERADO',
+            operatorName: (req as any).user?.name,
+          });
+        } catch {}
+      })();
+    }
 
     return res.json({ success: true, data: lot, message: 'Lote atualizado' });
   } catch (err: any) {

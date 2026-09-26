@@ -5,6 +5,7 @@ import path from 'path';
 import { z } from 'zod';
 import { prisma } from '../prisma/client';
 import { syncDocumentAdded, syncDocumentDeleted, syncAllDrive, getLotDrivePath, getDriveBasePath } from '../services/googleDriveSync.service';
+import { notifyDocumentUploaded } from '../services/whatsappNotification.service';
 
 const statusSchema = z.enum(['PENDING', 'UNDER_REVIEW', 'APPROVED', 'REJECTED', 'NOT_APPLICABLE', 'EXPIRED', 'ILLEGIBLE']);
 
@@ -355,6 +356,28 @@ export async function createDocument(req: Request, res: Response) {
   syncDocumentAdded(document.id).catch((err) =>
     console.error('[DocumentController] Erro ao sincronizar com Google Drive:', err)
   );
+
+  // Notify WhatsApp Admin in background
+  (async () => {
+    try {
+      let lotInfo: any = null;
+      if (document.lotId) {
+        lotInfo = await prisma.lot.findUnique({
+          where: { id: document.lotId },
+          select: { number: true, block: { select: { number: true } }, project: { select: { name: true } } },
+        });
+      }
+      notifyDocumentUploaded({
+        documentType: document.documentType?.name || document.category || 'Documento',
+        originalName: document.originalName,
+        personName: document.person?.fullName,
+        projectName: lotInfo?.project?.name,
+        blockNumber: lotInfo?.block?.number,
+        lotNumber: lotInfo?.number,
+        source: 'Upload no Sistema Web',
+      });
+    } catch {}
+  })();
 
   return res.status(201).json({ success: true, data: document, message: 'Documento enviado' });
 }

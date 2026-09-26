@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { z } from 'zod';
 import { prisma } from '../prisma/client';
 import { createContractDocument } from '../services/contractDocument.service';
+import { notifyContractSigned } from '../services/whatsappNotification.service';
 
 const contractSchema = z.object({
   contractNumber: z.string().min(1),
@@ -96,7 +97,31 @@ export async function updateContractStatus(req: Request, res: Response) {
   const result = z.object({ status: z.enum(['PENDING', 'ACTIVE', 'SIGNED', 'CANCELED']) }).safeParse(req.body);
   if (!result.success) return res.status(400).json({ success: false, data: null, message: 'Status inválido' });
   try {
-    const contract = await prisma.contract.update({ where: { id: req.params.id }, data: { status: result.data.status, signed: result.data.status === 'SIGNED', signedAt: result.data.status === 'SIGNED' ? new Date() : null } });
+    const contract = await prisma.contract.update({
+      where: { id: req.params.id },
+      data: {
+        status: result.data.status,
+        signed: result.data.status === 'SIGNED',
+        signedAt: result.data.status === 'SIGNED' ? new Date() : null,
+      },
+      include: {
+        person: { select: { fullName: true } },
+        lot: { include: { block: true, project: true } },
+      },
+    });
+
+    // Notify WhatsApp Admin
+    try {
+      notifyContractSigned({
+        contractNumber: contract.contractNumber,
+        personName: contract.person?.fullName,
+        projectName: contract.lot?.project?.name,
+        blockNumber: contract.lot?.block?.number,
+        lotNumber: contract.lot?.number,
+        status: contract.status === 'SIGNED' ? 'Assinado' : contract.status,
+      });
+    } catch {}
+
     return res.json({ success: true, data: contract, message: 'Status do contrato atualizado' });
   } catch {
     return res.status(404).json({ success: false, data: null, message: 'Contrato não encontrado' });
