@@ -45,7 +45,7 @@ const NAV_GROUPS: NavGroup[] = [
       { id: 'map', label: 'Mapa Interativo 2D', path: '/map', icon: Map },
       { id: 'projects', label: 'Projetos', path: '/projects', icon: Layers },
       { id: 'people', label: 'Pessoas', path: '/people', icon: Users },
-      { id: 'lots', label: 'Quadras e lotes', path: '/lots', icon: MapPin },
+      { id: 'lots', label: 'Gestão de lotes', path: '/lots', icon: MapPin },
       { id: 'blocks', label: 'Quadras', path: '/blocks', icon: Layers },
     ],
   },
@@ -222,7 +222,7 @@ export function DefaultLayout() {
   // Breadcrumb contextual da rota atual
   const breadcrumb = useMemo(() => {
     const p = location.pathname;
-    if (p.startsWith('/lots') || p.startsWith('/lotes')) return 'Operação / Quadras e lotes';
+    if (p.startsWith('/lots') || p.startsWith('/lotes')) return 'Operação / Gestão de lotes';
     if (p.startsWith('/projects')) return 'Operação / Projetos';
     if (p.startsWith('/people')) return 'Operação / Pessoas';
     if (p.startsWith('/blocks')) return 'Operação / Quadras';

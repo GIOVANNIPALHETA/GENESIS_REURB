@@ -4,7 +4,7 @@ export const menuItems = [
   { id: 'projects', label: 'Projetos', path: '/projects', icon: 'layers' },
   { id: 'people', label: 'Pessoas', path: '/people', icon: 'users' },
   { id: 'users', label: 'Usuários', path: '/users', icon: 'users' },
-  { id: 'lots', label: 'Lotes', path: '/lots', icon: 'list' },
+  { id: 'lots', label: 'Gestão de lotes', path: '/lots', icon: 'list' },
   { id: 'blocks', label: 'Quadras', path: '/blocks', icon: 'layers' },
   { id: 'contracts', label: 'Contratos', path: '/contracts', icon: 'file-text' },
   { id: 'finance', label: 'Financeiro', path: '/finance', icon: 'credit-card' },
