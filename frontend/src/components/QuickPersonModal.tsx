@@ -108,6 +108,10 @@ export function QuickPersonModal({ onClose, onCreated }: { onClose: () => void; 
 
     // Validações básicas
     if (form.personType === 'FISICA') {
+      if (!form.fullName.trim()) {
+        setError('Informe o nome completo da pessoa física.');
+        return;
+      }
       if (form.cpf && !isCpfValid) {
         setError('CPF do titular inválido. Verifique os dígitos informados.');
         return;
@@ -125,6 +129,10 @@ export function QuickPersonModal({ onClose, onCreated }: { onClose: () => void; 
         return;
       }
     } else {
+      if (!form.companyName.trim() && !form.fullName.trim()) {
+        setError('Informe ao menos a Razão Social da empresa.');
+        return;
+      }
       if (form.cnpj && !isCnpjValid) {
         setError('CNPJ da empresa inválido. Verifique os dígitos informados.');
         return;
@@ -144,29 +152,31 @@ export function QuickPersonModal({ onClose, onCreated }: { onClose: () => void; 
     try {
       let payload: any;
       if (form.personType === 'JURIDICA') {
+        const compName = form.companyName.trim() || form.fullName.trim();
+        const fanName = form.fullName.trim() || compName;
         payload = {
           personType: 'JURIDICA',
-          fullName: form.companyName || form.fullName, // Razão Social como principal ou Nome Fantasia
-          companyName: form.companyName || form.fullName,
-          cnpj: form.cnpj,
-          representativeName: form.representativeName || null,
-          representativeCpf: form.representativeCpf || null,
-          phone: form.phone || null,
-          email: form.email || null,
+          fullName: fanName, // Nome Fantasia (se preenchido) ou Razão Social
+          companyName: compName, // Razão Social
+          cnpj: form.cnpj.trim() || undefined,
+          representativeName: form.representativeName.trim() || undefined,
+          representativeCpf: form.representativeCpf.trim() || undefined,
+          phone: form.phone.trim() || undefined,
+          email: form.email.trim() || undefined,
           spouse: undefined,
         };
       } else {
         const hasSpouse = Boolean(form.spouse.fullName.trim());
         payload = {
           personType: 'FISICA',
-          fullName: form.fullName,
-          cpf: form.cpf || null,
-          rg: form.rg || null,
-          rgIssuer: form.rgIssuer || null,
-          profession: form.profession || null,
-          maritalStatus: form.maritalStatus || null,
-          phone: form.phone || null,
-          email: form.email || null,
+          fullName: form.fullName.trim(),
+          cpf: form.cpf.trim() || undefined,
+          rg: form.rg.trim() || undefined,
+          rgIssuer: form.rgIssuer.trim() || undefined,
+          profession: form.profession.trim() || undefined,
+          maritalStatus: form.maritalStatus || undefined,
+          phone: form.phone.trim() || undefined,
+          email: form.email.trim() || undefined,
           spouse: hasSpouse ? form.spouse : undefined,
         };
       }

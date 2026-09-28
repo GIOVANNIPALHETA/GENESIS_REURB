@@ -3,30 +3,46 @@ import { z } from 'zod';
 import { prisma } from '../prisma/client';
 import { syncPersonUpdated } from '../services/googleDriveSync.service';
 
+const optStr = z.preprocess(
+  (val) => (val === '' || val === null || val === undefined ? undefined : String(val).trim()),
+  z.string().optional()
+);
+
+const optEmail = z.preprocess(
+  (val) => (val === '' || val === null || val === undefined ? undefined : String(val).trim()),
+  z.string().email('E-mail informado é inválido.').optional()
+);
+
 const spouseSchema = z.object({
-  fullName: z.string().optional(),
-  cpf: z.string().optional(),
-  rg: z.string().optional(),
-  rgIssuer: z.string().optional(),
-  profession: z.string().optional(),
-  phone: z.string().optional(),
+  fullName: optStr,
+  cpf: optStr,
+  rg: optStr,
+  rgIssuer: optStr,
+  profession: optStr,
+  phone: optStr,
 });
 
 const personSchema = z.object({
-  fullName: z.string().min(1, 'Informe ao menos o nome ou razão social.'),
-  personType: z.enum(['FISICA', 'JURIDICA']).optional().default('FISICA'),
-  cpf: z.string().optional(),
-  cnpj: z.string().optional(),
-  companyName: z.string().optional(),
-  representativeName: z.string().optional(),
-  representativeCpf: z.string().optional(),
-  rg: z.string().optional(),
-  rgIssuer: z.string().optional(),
-  profession: z.string().optional(),
-  maritalStatus: z.string().optional(),
-  phone: z.string().optional(),
-  email: z.string().email().optional().or(z.literal('')),
-  spouse: spouseSchema.optional(),
+  fullName: z.preprocess(
+    (val) => (val === '' || val === null || val === undefined ? undefined : String(val).trim()),
+    z.string().min(1, 'Informe ao menos o nome ou razão social.')
+  ),
+  personType: z.preprocess(
+    (val) => (val === 'JURIDICA' ? 'JURIDICA' : 'FISICA'),
+    z.enum(['FISICA', 'JURIDICA']).default('FISICA')
+  ),
+  cpf: optStr,
+  cnpj: optStr,
+  companyName: optStr,
+  representativeName: optStr,
+  representativeCpf: optStr,
+  rg: optStr,
+  rgIssuer: optStr,
+  profession: optStr,
+  maritalStatus: optStr,
+  phone: optStr,
+  email: optEmail,
+  spouse: spouseSchema.optional().nullable(),
 });
 
 const personSelect = {
@@ -59,18 +75,23 @@ const personSelect = {
 
 export async function listPeople(req: Request, res: Response) {
   const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
+  const searchDigits = search.replace(/\D/g, '');
+  const orConditions: any[] = [
+    { fullName: { contains: search, mode: 'insensitive' } },
+    { companyName: { contains: search, mode: 'insensitive' } },
+    { representativeName: { contains: search, mode: 'insensitive' } },
+    { cpf: { contains: search } },
+    { cnpj: { contains: search } },
+    { rg: { contains: search } },
+  ];
+  if (searchDigits.length >= 3) {
+    orConditions.push({ cpf: { contains: searchDigits } });
+    orConditions.push({ cnpj: { contains: searchDigits } });
+  }
+
   const people = await prisma.person.findMany({
     where: search
-      ? {
-          OR: [
-            { fullName: { contains: search, mode: 'insensitive' } },
-            { companyName: { contains: search, mode: 'insensitive' } },
-            { representativeName: { contains: search, mode: 'insensitive' } },
-            { cpf: { contains: search } },
-            { cnpj: { contains: search } },
-            { rg: { contains: search } },
-          ],
-        }
+      ? { OR: orConditions }
       : undefined,
     select: personSelect,
     orderBy: { fullName: 'asc' },
@@ -79,8 +100,22 @@ export async function listPeople(req: Request, res: Response) {
 }
 
 export async function createPerson(req: Request, res: Response) {
-  const result = personSchema.safeParse(req.body);
-  if (!result.success) return res.status(400).json({ success: false, data: null, message: 'Informe ao menos o nome ou razão social.' });
+  const rawFullName = typeof req.body.fullName === 'string' ? req.body.fullName.trim() : '';
+  const rawCompanyName = typeof req.body.companyName === 'string' ? req.body.companyName.trim() : '';
+  const effectiveFullName = rawFullName || rawCompanyName;
+  const effectiveCompanyName = rawCompanyName || (req.body.personType === 'JURIDICA' ? effectiveFullName : undefined);
+
+  const result = personSchema.safeParse({
+    ...req.body,
+    fullName: effectiveFullName,
+    companyName: effectiveCompanyName,
+  });
+
+  if (!result.success) {
+    const errorMsg = result.error.issues[0]?.message || 'Informe ao menos o nome ou razão social.';
+    return res.status(400).json({ success: false, data: null, message: errorMsg });
+  }
+
   const { spouse, ...data } = result.data;
 
   // Normalizar CPF e CNPJ
@@ -89,7 +124,7 @@ export async function createPerson(req: Request, res: Response) {
   const cleanRepCpf = data.representativeCpf ? data.representativeCpf.replace(/\D/g, '') : undefined;
 
   // Verificar se o CPF já está cadastrado em outra pessoa
-  if (cleanCpf) {
+  if (cleanCpf && cleanCpf.length > 0) {
     const existing = await prisma.person.findFirst({
       where: {
         OR: [
@@ -109,7 +144,7 @@ export async function createPerson(req: Request, res: Response) {
   }
 
   // Verificar se o CNPJ já está cadastrado em outra empresa
-  if (cleanCnpj) {
+  if (cleanCnpj && cleanCnpj.length > 0) {
     const existingCnpj = await prisma.person.findFirst({
       where: {
         OR: [
@@ -133,21 +168,30 @@ export async function createPerson(req: Request, res: Response) {
   const cleanSpouse = hasSpouseData
     ? {
         fullName: spouse!.fullName!.trim(),
-        cpf: spouse!.cpf ? spouse!.cpf.replace(/\D/g, '') : undefined,
-        rg: spouse!.rg || undefined,
-        rgIssuer: spouse!.rgIssuer || undefined,
-        profession: spouse!.profession || undefined,
-        phone: spouse!.phone || undefined,
+        cpf: spouse!.cpf ? spouse!.cpf.replace(/\D/g, '') : null,
+        rg: spouse!.rg || null,
+        rgIssuer: spouse!.rgIssuer || null,
+        profession: spouse!.profession || null,
+        phone: spouse!.phone || null,
       }
     : undefined;
 
   try {
     const person = await prisma.person.create({
       data: {
-        ...data,
-        cpf: cleanCpf || data.cpf || null,
-        cnpj: cleanCnpj || data.cnpj || null,
-        representativeCpf: cleanRepCpf || data.representativeCpf || null,
+        fullName: data.fullName,
+        personType: data.personType,
+        cpf: (cleanCpf && cleanCpf.length > 0) ? cleanCpf : null,
+        cnpj: (cleanCnpj && cleanCnpj.length > 0) ? cleanCnpj : null,
+        companyName: data.companyName || null,
+        representativeName: data.representativeName || null,
+        representativeCpf: (cleanRepCpf && cleanRepCpf.length > 0) ? cleanRepCpf : null,
+        rg: data.rg || null,
+        rgIssuer: data.rgIssuer || null,
+        profession: data.profession || null,
+        maritalStatus: data.maritalStatus || null,
+        phone: data.phone || null,
+        email: data.email || null,
         spouse: cleanSpouse ? { create: cleanSpouse } : undefined,
       },
       select: personSelect,
@@ -163,10 +207,25 @@ export async function createPerson(req: Request, res: Response) {
 }
 
 export async function updatePerson(req: Request, res: Response) {
-  const result = personSchema.safeParse(req.body);
-  if (!result.success) return res.status(400).json({ success: false, data: null, message: 'Informe ao menos o nome ou razão social.' });
-  const { spouse, ...data } = result.data;
   const personId = req.params.id;
+
+  const rawFullName = typeof req.body.fullName === 'string' ? req.body.fullName.trim() : '';
+  const rawCompanyName = typeof req.body.companyName === 'string' ? req.body.companyName.trim() : '';
+  const effectiveFullName = rawFullName || rawCompanyName;
+  const effectiveCompanyName = rawCompanyName || (req.body.personType === 'JURIDICA' ? effectiveFullName : undefined);
+
+  const result = personSchema.safeParse({
+    ...req.body,
+    fullName: effectiveFullName,
+    companyName: effectiveCompanyName,
+  });
+
+  if (!result.success) {
+    const errorMsg = result.error.issues[0]?.message || 'Informe ao menos o nome ou razão social.';
+    return res.status(400).json({ success: false, data: null, message: errorMsg });
+  }
+
+  const { spouse, ...data } = result.data;
 
   // Normalizar CPF e CNPJ
   const cleanCpf = data.cpf ? data.cpf.replace(/\D/g, '') : undefined;
@@ -174,7 +233,7 @@ export async function updatePerson(req: Request, res: Response) {
   const cleanRepCpf = data.representativeCpf ? data.representativeCpf.replace(/\D/g, '') : undefined;
 
   // Verificar se o CPF já pertence a outra pessoa
-  if (cleanCpf) {
+  if (cleanCpf && cleanCpf.length > 0) {
     const existing = await prisma.person.findFirst({
       where: {
         id: { not: personId },
@@ -195,7 +254,7 @@ export async function updatePerson(req: Request, res: Response) {
   }
 
   // Verificar se o CNPJ já pertence a outra empresa
-  if (cleanCnpj) {
+  if (cleanCnpj && cleanCnpj.length > 0) {
     const existingCnpj = await prisma.person.findFirst({
       where: {
         id: { not: personId },
@@ -220,11 +279,11 @@ export async function updatePerson(req: Request, res: Response) {
   const cleanSpouse = hasSpouseData
     ? {
         fullName: spouse!.fullName!.trim(),
-        cpf: spouse!.cpf ? spouse!.cpf.replace(/\D/g, '') : undefined,
-        rg: spouse!.rg || undefined,
-        rgIssuer: spouse!.rgIssuer || undefined,
-        profession: spouse!.profession || undefined,
-        phone: spouse!.phone || undefined,
+        cpf: spouse!.cpf ? spouse!.cpf.replace(/\D/g, '') : null,
+        rg: spouse!.rg || null,
+        rgIssuer: spouse!.rgIssuer || null,
+        profession: spouse!.profession || null,
+        phone: spouse!.phone || null,
       }
     : undefined;
 
@@ -233,10 +292,19 @@ export async function updatePerson(req: Request, res: Response) {
       await tx.person.update({
         where: { id: personId },
         data: {
-          ...data,
-          cpf: cleanCpf || data.cpf || null,
-          cnpj: cleanCnpj || data.cnpj || null,
-          representativeCpf: cleanRepCpf || data.representativeCpf || null,
+          fullName: data.fullName,
+          personType: data.personType,
+          cpf: (cleanCpf && cleanCpf.length > 0) ? cleanCpf : null,
+          cnpj: (cleanCnpj && cleanCnpj.length > 0) ? cleanCnpj : null,
+          companyName: data.companyName || null,
+          representativeName: data.representativeName || null,
+          representativeCpf: (cleanRepCpf && cleanRepCpf.length > 0) ? cleanRepCpf : null,
+          rg: data.rg || null,
+          rgIssuer: data.rgIssuer || null,
+          profession: data.profession || null,
+          maritalStatus: data.maritalStatus || null,
+          phone: data.phone || null,
+          email: data.email || null,
         },
       });
       if (cleanSpouse) {
@@ -257,7 +325,7 @@ export async function updatePerson(req: Request, res: Response) {
     return res.status(error?.code === 'P2025' ? 404 : 400).json({
       success: false,
       data: null,
-      message: error?.code === 'P2002' ? 'Já existe uma pessoa com este CPF.' : 'Não foi possível atualizar a pessoa.',
+      message: error?.code === 'P2002' ? 'Já existe uma pessoa com este CPF ou CNPJ.' : 'Não foi possível atualizar a pessoa.',
     });
   }
 }

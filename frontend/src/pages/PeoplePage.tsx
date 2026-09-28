@@ -168,6 +168,10 @@ export function PeoplePage() {
     event.preventDefault();
 
     if (form.personType === 'FISICA') {
+      if (!form.fullName.trim()) {
+        alert('⚠️ Informe o nome completo da pessoa física.');
+        return;
+      }
       if (form.cpf && !isTitularCpfValid) {
         alert('⚠️ O CPF do titular informado é inválido. Verifique os dígitos e tente novamente.');
         return;
@@ -185,6 +189,10 @@ export function PeoplePage() {
         return;
       }
     } else {
+      if (!form.companyName.trim() && !form.fullName.trim()) {
+        alert('⚠️ Informe a Razão Social da empresa.');
+        return;
+      }
       if (form.cnpj && !isCnpjValid) {
         alert('⚠️ O CNPJ da empresa informado é inválido. Verifique os dígitos e tente novamente.');
         return;
@@ -203,29 +211,31 @@ export function PeoplePage() {
     try {
       let payload: any;
       if (form.personType === 'JURIDICA') {
+        const compName = form.companyName.trim() || form.fullName.trim();
+        const fanName = form.fullName.trim() || compName;
         payload = {
           personType: 'JURIDICA',
-          fullName: form.companyName || form.fullName,
-          companyName: form.companyName || form.fullName,
-          cnpj: form.cnpj || null,
-          representativeName: form.representativeName || null,
-          representativeCpf: form.representativeCpf || null,
-          phone: form.phone || null,
-          email: form.email || null,
+          fullName: fanName,
+          companyName: compName,
+          cnpj: form.cnpj.trim() || undefined,
+          representativeName: form.representativeName.trim() || undefined,
+          representativeCpf: form.representativeCpf.trim() || undefined,
+          phone: form.phone.trim() || undefined,
+          email: form.email.trim() || undefined,
           spouse: undefined,
         };
       } else {
         const hasSpouse = Boolean(form.spouse.fullName.trim());
         payload = {
           personType: 'FISICA',
-          fullName: form.fullName,
-          cpf: form.cpf || null,
-          rg: form.rg || null,
-          rgIssuer: form.rgIssuer || null,
-          profession: form.profession || null,
-          maritalStatus: form.maritalStatus || null,
-          phone: form.phone || null,
-          email: form.email || null,
+          fullName: form.fullName.trim(),
+          cpf: form.cpf.trim() || undefined,
+          rg: form.rg.trim() || undefined,
+          rgIssuer: form.rgIssuer.trim() || undefined,
+          profession: form.profession.trim() || undefined,
+          maritalStatus: form.maritalStatus || undefined,
+          phone: form.phone.trim() || undefined,
+          email: form.email.trim() || undefined,
           spouse: hasSpouse ? form.spouse : undefined,
         };
       }
