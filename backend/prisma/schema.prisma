@@ -166,11 +166,16 @@ model Lot {
 }
 
 model Person {
-  id             String          @id @default(uuid())
-  fullName       String
-  cpf            String?         @unique
-  rg             String?
-  rgIssuer       String?
+  id                 String          @id @default(uuid())
+  fullName           String
+  personType         String?         @default("FISICA")
+  cpf                String?         @unique
+  cnpj               String?         @unique
+  companyName        String?
+  representativeName String?
+  representativeCpf  String?
+  rg                 String?
+  rgIssuer           String?
   birthDate      DateTime?
   maritalStatus  String?
   profession     String?
