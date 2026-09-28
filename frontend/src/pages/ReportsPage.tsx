@@ -123,6 +123,7 @@ export function ReportsPage() {
     setActiveCategory(catId);
     const firstRep = reportsList.find(r => r.category === catId);
     if (firstRep) {
+      setReportData(null);
       setActiveReportId(firstRep.id);
       setPage(1);
     }
@@ -362,6 +363,7 @@ export function ReportsPage() {
                 key={rep.id}
                 type="button"
                 onClick={() => {
+                  setReportData(null);
                   setActiveReportId(rep.id);
                   setPage(1);
                 }}
@@ -381,8 +383,87 @@ export function ReportsPage() {
       {/* Indicadores Resumidos (KPIs) */}
       {reportData?.indicators && (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {/* Indicadores: Posição Financeira por Projeto */}
+          {activeReportId === 'financial-by-project' && reportData?.reportType === 'financial-by-project' && (
+            <>
+              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                    Total Contratado
+                  </span>
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-teal-50 text-[#0f5964]">
+                    <Building2 size={18} />
+                  </div>
+                </div>
+                <div className="mt-3 flex items-baseline gap-2">
+                  <span className="text-2xl font-bold text-slate-900">
+                    {formatMoney(reportData.indicators?.totalContracted || 0)}
+                  </span>
+                  <span className="text-xs text-slate-500">
+                    ({reportData.indicators?.totalContractsCount || 0} contratos)
+                  </span>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                    Total Recebido
+                  </span>
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
+                    <CheckCircle2 size={18} />
+                  </div>
+                </div>
+                <div className="mt-3 flex items-baseline gap-2">
+                  <span className="text-2xl font-bold text-emerald-700">
+                    {formatMoney(reportData.indicators?.totalReceived || 0)}
+                  </span>
+                  <span className="text-xs text-emerald-600 font-semibold">
+                    {reportData.indicators?.globalAmortizationRate || 0}% quitado
+                  </span>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                    Saldo a Vencer
+                  </span>
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-50 text-sky-600">
+                    <Clock size={18} />
+                  </div>
+                </div>
+                <div className="mt-3 flex items-baseline gap-2">
+                  <span className="text-2xl font-bold text-sky-700">
+                    {formatMoney(reportData.indicators?.totalPending || 0)}
+                  </span>
+                  <span className="text-xs text-slate-500">futuro a receber</span>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                    Inadimplência Vencida
+                  </span>
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-rose-50 text-rose-600">
+                    <AlertTriangle size={18} />
+                  </div>
+                </div>
+                <div className="mt-3 flex items-baseline gap-2">
+                  <span className="text-2xl font-bold text-rose-700">
+                    {formatMoney(reportData.indicators?.totalOverdue || 0)}
+                  </span>
+                  <span className="text-xs text-rose-600 font-semibold">
+                    {reportData.indicators?.globalOverdueRate || 0}% inadimp.
+                  </span>
+                </div>
+              </div>
+            </>
+          )}
+
           {/* Indicadores: Pendências por Lote */}
-          {activeReportId === 'lot-pendencies' && (
+          {activeReportId === 'lot-pendencies' && reportData?.reportType === 'lot-pendencies' && (
             <>
               <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
                 <div className="flex items-center justify-between">
@@ -395,7 +476,7 @@ export function ReportsPage() {
                 </div>
                 <div className="mt-3 flex items-baseline gap-2">
                   <span className="text-2xl font-bold text-slate-900">
-                    {reportData.indicators.lotsWithPendencies}
+                    {reportData.indicators?.lotsWithPendencies ?? 0}
                   </span>
                   <span className="text-xs text-slate-500">lotes distintos</span>
                 </div>
@@ -412,7 +493,7 @@ export function ReportsPage() {
                 </div>
                 <div className="mt-3 flex items-baseline gap-2">
                   <span className="text-2xl font-bold text-amber-700">
-                    {reportData.indicators.openPendencies}
+                    {reportData.indicators?.openPendencies ?? 0}
                   </span>
                   <span className="text-xs text-slate-500">ações pendentes</span>
                 </div>
@@ -429,7 +510,7 @@ export function ReportsPage() {
                 </div>
                 <div className="mt-3 flex items-baseline gap-2">
                   <span className="text-2xl font-bold text-rose-600">
-                    {reportData.indicators.overduePendencies}
+                    {reportData.indicators?.overduePendencies ?? 0}
                   </span>
                   <span className="text-xs text-slate-500">prazo expirado</span>
                 </div>
@@ -446,7 +527,7 @@ export function ReportsPage() {
                 </div>
                 <div className="mt-3 flex items-baseline gap-2">
                   <span className="text-2xl font-bold text-slate-800">
-                    {reportData.indicators.totalPendencies}
+                    {reportData.indicators?.totalPendencies ?? 0}
                   </span>
                   <span className="text-xs text-slate-500">registros filtrados</span>
                 </div>
@@ -455,7 +536,7 @@ export function ReportsPage() {
           )}
 
           {/* Indicadores: Checklist Documental */}
-          {activeReportId === 'document-checklist' && (
+          {activeReportId === 'document-checklist' && reportData?.reportType === 'document-checklist' && (
             <>
               <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
                 <div className="flex items-center justify-between">
@@ -468,7 +549,7 @@ export function ReportsPage() {
                 </div>
                 <div className="mt-3 flex items-baseline gap-2">
                   <span className="text-2xl font-bold text-slate-800">
-                    {reportData.indicators.notDeliveredCount}
+                    {reportData.indicators?.notDeliveredCount ?? 0}
                   </span>
                   <span className="text-xs text-slate-500">itens pendentes</span>
                 </div>
@@ -485,7 +566,7 @@ export function ReportsPage() {
                 </div>
                 <div className="mt-3 flex items-baseline gap-2">
                   <span className="text-2xl font-bold text-sky-700">
-                    {reportData.indicators.underReviewCount}
+                    {reportData.indicators?.underReviewCount ?? 0}
                   </span>
                   <span className="text-xs text-slate-500">em validação</span>
                 </div>
@@ -502,7 +583,7 @@ export function ReportsPage() {
                 </div>
                 <div className="mt-3 flex items-baseline gap-2">
                   <span className="text-2xl font-bold text-rose-600">
-                    {reportData.indicators.correctionNeededCount}
+                    {reportData.indicators?.correctionNeededCount ?? 0}
                   </span>
                   <span className="text-xs text-slate-500">rejeitados/vencidos</span>
                 </div>
@@ -519,7 +600,7 @@ export function ReportsPage() {
                 </div>
                 <div className="mt-3 flex items-baseline gap-2">
                   <span className="text-2xl font-bold text-emerald-700">
-                    {reportData.indicators.approvedCount}
+                    {reportData.indicators?.approvedCount ?? 0}
                   </span>
                   <span className="text-xs text-slate-500">conformidade OK</span>
                 </div>
@@ -528,7 +609,7 @@ export function ReportsPage() {
           )}
 
           {/* Indicadores: Parcelas em Atraso */}
-          {activeReportId === 'overdue-installments' && (
+          {activeReportId === 'overdue-installments' && reportData?.reportType === 'overdue-installments' && (
             <>
               <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
                 <div className="flex items-center justify-between">
@@ -541,7 +622,7 @@ export function ReportsPage() {
                 </div>
                 <div className="mt-3 flex items-baseline gap-2">
                   <span className="text-2xl font-bold text-rose-700">
-                    {formatMoney(reportData.indicators.totalOverdueAmount)}
+                    {formatMoney(reportData.indicators?.totalOverdueAmount || 0)}
                   </span>
                 </div>
               </div>
@@ -557,7 +638,7 @@ export function ReportsPage() {
                 </div>
                 <div className="mt-3 flex items-baseline gap-2">
                   <span className="text-2xl font-bold text-slate-900">
-                    {reportData.indicators.overdueInstallmentsCount}
+                    {reportData.indicators?.overdueInstallmentsCount ?? 0}
                   </span>
                   <span className="text-xs text-slate-500">parcelas</span>
                 </div>
@@ -574,7 +655,7 @@ export function ReportsPage() {
                 </div>
                 <div className="mt-3 flex items-baseline gap-2">
                   <span className="text-2xl font-bold text-[#0f5964]">
-                    {reportData.indicators.distinctContractsCount}
+                    {reportData.indicators?.distinctContractsCount ?? 0}
                   </span>
                   <span className="text-xs text-slate-500">famílias / contratos</span>
                 </div>
@@ -588,25 +669,25 @@ export function ReportsPage() {
                   <div className="flex justify-between text-slate-600">
                     <span>Até 30d:</span>
                     <span className="font-semibold text-slate-800">
-                      {formatMoney(reportData.indicators.agingBuckets.upTo30.amount)} ({reportData.indicators.agingBuckets.upTo30.count})
+                      {formatMoney(reportData.indicators?.agingBuckets?.upTo30?.amount || 0)} ({reportData.indicators?.agingBuckets?.upTo30?.count || 0})
                     </span>
                   </div>
                   <div className="flex justify-between text-slate-600">
                     <span>31 a 60d:</span>
                     <span className="font-semibold text-slate-800">
-                      {formatMoney(reportData.indicators.agingBuckets.from31to60.amount)} ({reportData.indicators.agingBuckets.from31to60.count})
+                      {formatMoney(reportData.indicators?.agingBuckets?.from31to60?.amount || 0)} ({reportData.indicators?.agingBuckets?.from31to60?.count || 0})
                     </span>
                   </div>
                   <div className="flex justify-between text-slate-600">
                     <span>61 a 90d:</span>
                     <span className="font-semibold text-slate-800">
-                      {formatMoney(reportData.indicators.agingBuckets.from61to90.amount)} ({reportData.indicators.agingBuckets.from61to90.count})
+                      {formatMoney(reportData.indicators?.agingBuckets?.from61to90?.amount || 0)} ({reportData.indicators?.agingBuckets?.from61to90?.count || 0})
                     </span>
                   </div>
                   <div className="flex justify-between text-rose-600 font-medium">
                     <span>&gt; 90 dias:</span>
                     <span className="font-bold">
-                      {formatMoney(reportData.indicators.agingBuckets.over90.amount)} ({reportData.indicators.agingBuckets.over90.count})
+                      {formatMoney(reportData.indicators?.agingBuckets?.over90?.amount || 0)} ({reportData.indicators?.agingBuckets?.over90?.count || 0})
                     </span>
                   </div>
                 </div>
@@ -615,41 +696,41 @@ export function ReportsPage() {
           )}
 
           {/* Indicadores: Evolução Contratual */}
-          {activeReportId === 'contracts-evolution' && (
+          {activeReportId === 'contracts-evolution' && reportData?.reportType === 'contracts-evolution' && (
             <>
               <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
                 <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Contratos Assinados</span>
-                <p className="mt-3 text-2xl font-bold text-emerald-700">{reportData.indicators.signedCount}</p>
+                <p className="mt-3 text-2xl font-bold text-emerald-700">{reportData.indicators?.signedCount ?? 0}</p>
               </div>
               <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
                 <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Pendentes Assinatura</span>
-                <p className="mt-3 text-2xl font-bold text-amber-600">{reportData.indicators.unsignedCount}</p>
+                <p className="mt-3 text-2xl font-bold text-amber-600">{reportData.indicators?.unsignedCount ?? 0}</p>
               </div>
               <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
                 <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Valor Total Contratado</span>
-                <p className="mt-3 text-2xl font-bold text-slate-900">{formatMoney(reportData.indicators.totalValue)}</p>
+                <p className="mt-3 text-2xl font-bold text-slate-900">{formatMoney(reportData.indicators?.totalValue || 0)}</p>
               </div>
               <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
                 <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Total Amortizado</span>
-                <p className="mt-3 text-2xl font-bold text-[#0f5964]">{formatMoney(reportData.indicators.totalPaid)}</p>
+                <p className="mt-3 text-2xl font-bold text-[#0f5964]">{formatMoney(reportData.indicators?.totalPaid || 0)}</p>
               </div>
             </>
           )}
 
           {/* Indicadores: Histórico Atendimentos */}
-          {activeReportId === 'service-records' && (
+          {activeReportId === 'service-records' && reportData?.reportType === 'service-records' && (
             <>
               <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
                 <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Total de Atendimentos</span>
-                <p className="mt-3 text-2xl font-bold text-slate-900">{reportData.indicators.totalServices}</p>
+                <p className="mt-3 text-2xl font-bold text-slate-900">{reportData.indicators?.totalServices ?? 0}</p>
               </div>
               <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
                 <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Famílias Atendidas</span>
-                <p className="mt-3 text-2xl font-bold text-[#0f5964]">{reportData.indicators.distinctPeople}</p>
+                <p className="mt-3 text-2xl font-bold text-[#0f5964]">{reportData.indicators?.distinctPeople ?? 0}</p>
               </div>
               <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
                 <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Com Próximo Contato</span>
-                <p className="mt-3 text-2xl font-bold text-sky-700">{reportData.indicators.withNextContact}</p>
+                <p className="mt-3 text-2xl font-bold text-sky-700">{reportData.indicators?.withNextContact ?? 0}</p>
               </div>
             </>
           )}
@@ -954,6 +1035,21 @@ export function ReportsPage() {
                   </tr>
                 )}
 
+                {activeReportId === 'financial-by-project' && (
+                  <tr>
+                    <th className="px-5 py-3.5">Projeto</th>
+                    <th className="px-4 py-3.5">Município / Bairro</th>
+                    <th className="px-4 py-3.5 text-center">Lotes</th>
+                    <th className="px-4 py-3.5 text-center">Contratos</th>
+                    <th className="px-4 py-3.5 text-right">Total Contratado</th>
+                    <th className="px-4 py-3.5 text-right">Total Recebido</th>
+                    <th className="px-4 py-3.5 text-right">Saldo a Vencer</th>
+                    <th className="px-4 py-3.5 text-right">Saldo Vencido</th>
+                    <th className="px-4 py-3.5 text-center">Inadimplência</th>
+                    <th className="px-4 py-3.5 text-center">Quitação</th>
+                  </tr>
+                )}
+
                 {activeReportId === 'overdue-installments' && (
                   <tr>
                     <th className="px-5 py-3.5">Contrato</th>
@@ -1001,7 +1097,7 @@ export function ReportsPage() {
 
               {/* CORPO DA TABELA */}
               <tbody className="divide-y divide-slate-100">
-                {activeReportId === 'lot-pendencies' && reportData.rows.map((row: any) => (
+                {activeReportId === 'lot-pendencies' && reportData?.reportType === 'lot-pendencies' && reportData.rows.map((row: any) => (
                   <tr key={row.id} className="hover:bg-slate-50/80 transition">
                     <td className="px-5 py-3 font-medium text-slate-900">{row.projectName}</td>
                     <td className="px-4 py-3 font-semibold text-[#0f5964]">{row.quadraLote}</td>
@@ -1059,7 +1155,7 @@ export function ReportsPage() {
                   </tr>
                 ))}
 
-                {activeReportId === 'document-checklist' && reportData.rows.map((row: any) => (
+                {activeReportId === 'document-checklist' && reportData?.reportType === 'document-checklist' && reportData.rows.map((row: any) => (
                   <tr key={row.id} className="hover:bg-slate-50/80 transition">
                     <td className="px-5 py-3 font-medium text-slate-900">{row.projectName}</td>
                     <td className="px-4 py-3 font-semibold text-[#0f5964]">{row.quadraLote}</td>
@@ -1106,7 +1202,60 @@ export function ReportsPage() {
                   </tr>
                 ))}
 
-                {activeReportId === 'overdue-installments' && reportData.rows.map((row: any) => (
+                {activeReportId === 'financial-by-project' && reportData?.reportType === 'financial-by-project' && reportData.rows.map((row: any) => (
+                  <tr key={row.id} className="hover:bg-slate-50/80 transition">
+                    <td className="px-5 py-3">
+                      <p className="font-bold text-slate-900">{row.projectName}</p>
+                      <p className="text-[11px] text-slate-400">{row.totalBlocks} quadras cadastradas</p>
+                    </td>
+                    <td className="px-4 py-3 text-slate-700">
+                      <p className="font-medium text-slate-800">{row.city} - {row.state}</p>
+                      <p className="text-[11px] text-slate-400">{row.neighborhood}</p>
+                    </td>
+                    <td className="px-4 py-3 text-center font-medium text-slate-700">{row.totalLots}</td>
+                    <td className="px-4 py-3 text-center">
+                      <span className="font-semibold text-slate-900">{row.totalContracts}</span>
+                      <span className="text-[11px] text-slate-400 block">({row.signedContracts} ass.)</span>
+                    </td>
+                    <td className="px-4 py-3 text-right font-medium text-slate-900">{formatMoney(row.contractedValue)}</td>
+                    <td className="px-4 py-3 text-right font-semibold text-emerald-700">{formatMoney(row.totalPaid)}</td>
+                    <td className="px-4 py-3 text-right text-slate-700">{formatMoney(row.pendingAmount)}</td>
+                    <td className="px-4 py-3 text-right">
+                      {row.overdueAmount > 0 ? (
+                        <div>
+                          <span className="font-bold text-rose-700">{formatMoney(row.overdueAmount)}</span>
+                          <span className="text-[10px] text-rose-500 block">{row.overdueCount} parc.</span>
+                        </div>
+                      ) : (
+                        <span className="text-emerald-600 font-medium">R$ 0,00</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-bold ${
+                        row.overdueRate === 0
+                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                          : row.overdueRate > 25
+                          ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                          : 'bg-amber-50 text-amber-700 border border-amber-200'
+                      }`}>
+                        {row.overdueRate}%
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <div className="flex flex-col items-center gap-1">
+                        <span className="font-bold text-slate-800 text-xs">{row.amortizationRate}%</span>
+                        <div className="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-[#0f5964] rounded-full"
+                            style={{ width: `${Math.min(100, row.amortizationRate)}%` }}
+                          />
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+
+                {activeReportId === 'overdue-installments' && reportData?.reportType === 'overdue-installments' && reportData.rows.map((row: any) => (
                   <tr key={row.id} className="hover:bg-slate-50/80 transition">
                     <td className="px-5 py-3 font-semibold text-slate-900">{row.contractNumber}</td>
                     <td className="px-5 py-3">
@@ -1137,7 +1286,7 @@ export function ReportsPage() {
                   </tr>
                 ))}
 
-                {activeReportId === 'contracts-evolution' && reportData.rows.map((row: any) => (
+                {activeReportId === 'contracts-evolution' && reportData?.reportType === 'contracts-evolution' && reportData.rows.map((row: any) => (
                   <tr key={row.id} className="hover:bg-slate-50/80 transition">
                     <td className="px-5 py-3 font-semibold text-slate-900">{row.contractNumber}</td>
                     <td className="px-4 py-3 text-slate-700">{row.projectName}</td>
@@ -1163,7 +1312,7 @@ export function ReportsPage() {
                   </tr>
                 ))}
 
-                {activeReportId === 'service-records' && reportData.rows.map((row: any) => (
+                {activeReportId === 'service-records' && reportData?.reportType === 'service-records' && reportData.rows.map((row: any) => (
                   <tr key={row.id} className="hover:bg-slate-50/80 transition">
                     <td className="px-5 py-3 font-medium text-slate-800">
                       {new Date(row.serviceDate + 'T12:00:00').toLocaleDateString('pt-BR')}

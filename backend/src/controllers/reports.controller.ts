@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import {
   getLotPendenciesReport,
   getDocumentChecklistReport,
+  getFinancialByProjectReport,
   getOverdueInstallmentsReport,
   getContractsEvolutionReport,
   getServiceRecordsReport,
@@ -34,6 +35,15 @@ const AVAILABLE_REPORTS = [
     supportsSituation: true,
     supportsDocType: true,
     situations: ['Todas', 'Não entregue', 'Em análise', 'Aprovado', 'Precisa de correção']
+  },
+  {
+    id: 'financial-by-project',
+    title: 'Posição Financeira por Projeto',
+    category: 'Financeiro',
+    description: 'Visão financeira consolidada por projeto: valor total contratado, valor recebido, saldo a vencer, inadimplência e taxa de quitação.',
+    dateFilterLabel: 'Data de referência da posição',
+    supportsReferenceDate: true,
+    supportsResponsible: false
   },
   {
     id: 'overdue-installments',
@@ -113,6 +123,9 @@ export async function getReportData(req: Request, res: Response, next: NextFunct
       case 'document-checklist':
         reportResult = await getDocumentChecklistReport(filters);
         break;
+      case 'financial-by-project':
+        reportResult = await getFinancialByProjectReport(filters);
+        break;
       case 'overdue-installments':
         reportResult = await getOverdueInstallmentsReport(filters);
         break;
@@ -174,6 +187,9 @@ export async function exportReportExcel(req: Request, res: Response, next: NextF
       case 'document-checklist':
         reportResult = await getDocumentChecklistReport(filters);
         break;
+      case 'financial-by-project':
+        reportResult = await getFinancialByProjectReport(filters);
+        break;
       case 'overdue-installments':
         reportResult = await getOverdueInstallmentsReport(filters);
         break;
@@ -223,6 +239,9 @@ export async function exportReportPDF(req: Request, res: Response, next: NextFun
         break;
       case 'document-checklist':
         reportResult = await getDocumentChecklistReport(filters);
+        break;
+      case 'financial-by-project':
+        reportResult = await getFinancialByProjectReport(filters);
         break;
       case 'overdue-installments':
         reportResult = await getOverdueInstallmentsReport(filters);

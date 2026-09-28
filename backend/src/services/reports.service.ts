@@ -513,7 +513,151 @@ export async function getDocumentChecklistReport(filters: ReportFilterParams) {
 }
 
 // ---------------------------------------------------------------------------
-// 3. PARCELAS EM ATRASO (CATEGORIA FINANCEIRO)
+// 3.1 POSIÇÃO FINANCEIRA POR PROJETO (CATEGORIA FINANCEIRO)
+// ---------------------------------------------------------------------------
+export async function getFinancialByProjectReport(filters: ReportFilterParams) {
+  const refDate = filters.referenceDate ? new Date(filters.referenceDate + 'T23:59:59.999Z') : new Date();
+
+  const projects = await prisma.project.findMany({
+    where: {
+      id: filters.projectId || undefined,
+      active: true,
+    },
+    include: {
+      blocks: { select: { id: true } },
+      lots: { select: { id: true, status: true } },
+      contracts: {
+        where: {
+          status: { notIn: ['CANCELED', 'CANCELADO', 'DISTRATTO'] },
+          ...(filters.startDate ? { createdAt: { gte: new Date(filters.startDate) } } : {}),
+          ...(filters.endDate ? { createdAt: { lte: new Date(filters.endDate + 'T23:59:59.999Z') } } : {}),
+        },
+        include: {
+          negotiations: {
+            include: {
+              installments: true,
+            },
+          },
+        },
+      },
+    },
+    orderBy: { name: 'asc' },
+  });
+
+  const rows: any[] = [];
+
+  let totalContractedAll = 0;
+  let totalReceivedAll = 0;
+  let totalPendingAll = 0;
+  let totalOverdueAll = 0;
+  let totalOverdueCountAll = 0;
+  let totalContractsAll = 0;
+
+  for (const p of projects) {
+    const totalLots = p.lots.length;
+    const totalBlocks = p.blocks.length;
+    const totalContracts = p.contracts.length;
+    const signedContracts = p.contracts.filter(c => c.signed).length;
+
+    let contractedValue = 0;
+    let totalPaid = 0;
+    let pendingAmount = 0;
+    let overdueAmount = 0;
+    let overdueCount = 0;
+
+    for (const c of p.contracts) {
+      contractedValue += c.totalValue || 0;
+      for (const neg of c.negotiations) {
+        for (const inst of neg.installments) {
+          if (['CANCELED', 'RENEGOTIATED'].includes(inst.status)) continue;
+          totalPaid += inst.paidAmount || 0;
+
+          const remaining = Math.max(0, (inst.amount || 0) - (inst.paidAmount || 0));
+          if (remaining > 0.01) {
+            const dDate = new Date(inst.dueDate);
+            if (dDate < refDate) {
+              overdueAmount += remaining;
+              overdueCount++;
+            } else {
+              pendingAmount += remaining;
+            }
+          }
+        }
+      }
+    }
+
+    const openBalance = overdueAmount + pendingAmount;
+    const overdueRate = openBalance > 0 ? (overdueAmount / openBalance) * 100 : 0;
+    const amortizationRate = contractedValue > 0 ? (totalPaid / contractedValue) * 100 : 0;
+
+    totalContractedAll += contractedValue;
+    totalReceivedAll += totalPaid;
+    totalPendingAll += pendingAmount;
+    totalOverdueAll += overdueAmount;
+    totalOverdueCountAll += overdueCount;
+    totalContractsAll += totalContracts;
+
+    rows.push({
+      id: p.id,
+      projectId: p.id,
+      projectName: p.name,
+      neighborhood: p.neighborhood || '—',
+      city: p.city || '—',
+      state: p.state || 'MT',
+      totalBlocks,
+      totalLots,
+      totalContracts,
+      signedContracts,
+      contractedValue: Math.round(contractedValue * 100) / 100,
+      totalPaid: Math.round(totalPaid * 100) / 100,
+      pendingAmount: Math.round(pendingAmount * 100) / 100,
+      overdueAmount: Math.round(overdueAmount * 100) / 100,
+      overdueCount,
+      overdueRate: Math.round(overdueRate * 10) / 10,
+      amortizationRate: Math.round(amortizationRate * 10) / 10,
+    });
+  }
+
+  // Filtragem por busca (nome do projeto ou cidade)
+  let filteredRows = rows;
+  if (filters.search) {
+    const s = filters.search.toLowerCase().trim();
+    filteredRows = filteredRows.filter(r =>
+      r.projectName.toLowerCase().includes(s) ||
+      r.city.toLowerCase().includes(s) ||
+      r.neighborhood.toLowerCase().includes(s)
+    );
+  }
+
+  const globalOpenBalance = totalOverdueAll + totalPendingAll;
+  const globalOverdueRate = globalOpenBalance > 0 ? (totalOverdueAll / globalOpenBalance) * 100 : 0;
+  const globalAmortizationRate = totalContractedAll > 0 ? (totalReceivedAll / totalContractedAll) * 100 : 0;
+
+  return {
+    reportType: 'financial-by-project',
+    title: 'Relatório Financeiro por Projeto (Posição Consolidada)',
+    category: 'Financeiro',
+    generatedAt: new Date().toISOString(),
+    referenceDate: refDate.toISOString().slice(0, 10),
+    filterPeriodUsed: 'Posição financeira consolidada na data de referência',
+    indicators: {
+      totalContracted: Math.round(totalContractedAll * 100) / 100,
+      totalReceived: Math.round(totalReceivedAll * 100) / 100,
+      totalPending: Math.round(totalPendingAll * 100) / 100,
+      totalOverdue: Math.round(totalOverdueAll * 100) / 100,
+      overdueInstallmentsCount: totalOverdueCountAll,
+      totalContractsCount: totalContractsAll,
+      globalOverdueRate: Math.round(globalOverdueRate * 10) / 10,
+      globalAmortizationRate: Math.round(globalAmortizationRate * 10) / 10,
+      projectsCount: filteredRows.length,
+    },
+    totalRecords: filteredRows.length,
+    rows: filteredRows,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 3.2 PARCELAS EM ATRASO (CATEGORIA FINANCEIRO)
 // ---------------------------------------------------------------------------
 export async function getOverdueInstallmentsReport(filters: ReportFilterParams) {
   const refDate = filters.referenceDate ? new Date(filters.referenceDate + 'T23:59:59.999Z') : new Date();
@@ -873,6 +1017,22 @@ export function exportReportToExcel(reportData: any): Buffer {
       'Dias de Atraso': r.daysOverdue,
       'Faixa de Atraso': r.agingBracket
     }));
+  } else if (reportData.reportType === 'financial-by-project') {
+    formattedRows = reportData.rows.map((r: any) => ({
+      'Projeto': r.projectName,
+      'Bairro': r.neighborhood,
+      'Município / UF': `${r.city}/${r.state}`,
+      'Quadras': r.totalBlocks,
+      'Lotes': r.totalLots,
+      'Contratos': r.totalContracts,
+      'Total Contratado (R$)': Number(r.contractedValue.toFixed(2)),
+      'Total Recebido (R$)': Number(r.totalPaid.toFixed(2)),
+      'Saldo a Vencer (R$)': Number(r.pendingAmount.toFixed(2)),
+      'Saldo Vencido (R$)': Number(r.overdueAmount.toFixed(2)),
+      'Parcelas Vencidas': r.overdueCount,
+      'Taxa Inadimplência (%)': `${r.overdueRate}%`,
+      'Taxa Quitação (%)': `${r.amortizationRate}%`
+    }));
   } else if (reportData.reportType === 'contracts-evolution') {
     formattedRows = reportData.rows.map((r: any) => ({
       'Contrato': r.contractNumber,
@@ -961,6 +1121,11 @@ export async function exportReportToPDF(reportData: any): Promise<Buffer> {
     } else if (reportData.reportType === 'overdue-installments') {
       const valStr = reportData.indicators.totalOverdueAmount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
       summaryText += `  |  Saldo Vencido Total: ${valStr}  |  Parcelas Vencidas: ${reportData.indicators.overdueInstallmentsCount}  |  Contratos com Atraso: ${reportData.indicators.distinctContractsCount}`;
+    } else if (reportData.reportType === 'financial-by-project') {
+      const valContr = (reportData.indicators.totalContracted || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+      const valRec = (reportData.indicators.totalReceived || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+      const valVenc = (reportData.indicators.totalOverdue || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+      summaryText += `  |  Total Contratado: ${valContr}  |  Total Recebido: ${valRec}  |  Inadimplência Vencida: ${valVenc}  |  Taxa Inadimplência: ${reportData.indicators.globalOverdueRate}%`;
     }
     doc.text(summaryText, 40, 106);
 
@@ -991,6 +1156,19 @@ export async function exportReportToPDF(reportData: any): Promise<Buffer> {
         { title: 'Situação', key: 'situation', width: 100 },
         { title: 'Data Entrega', key: 'deliveryDate', width: 80 },
         { title: 'Motivo / Pendência', key: 'pendingReason', width: 155 }
+      ];
+    } else if (reportData.reportType === 'financial-by-project') {
+      columns = [
+        { title: 'Projeto', key: 'projectName', width: 155 },
+        { title: 'Município', key: 'city', width: 85 },
+        { title: 'Lotes', key: 'totalLots', width: 45, align: 'center' },
+        { title: 'Contratos', key: 'totalContracts', width: 55, align: 'center' },
+        { title: 'Contratado (R$)', key: 'contractedValue', width: 85, align: 'right' },
+        { title: 'Recebido (R$)', key: 'totalPaid', width: 85, align: 'right' },
+        { title: 'A Vencer (R$)', key: 'pendingAmount', width: 80, align: 'right' },
+        { title: 'Vencido (R$)', key: 'overdueAmount', width: 80, align: 'right' },
+        { title: '% Inad.', key: 'overdueRate', width: 55, align: 'right' },
+        { title: '% Quit.', key: 'amortizationRate', width: 55, align: 'right' },
       ];
     } else if (reportData.reportType === 'overdue-installments') {
       columns = [
@@ -1036,11 +1214,23 @@ export async function exportReportToPDF(reportData: any): Promise<Buffer> {
       let currX = 35;
       columns.forEach(col => {
         let val = row[col.key];
-        if (col.key === 'dueAmount' || col.key === 'openAmount' || col.key === 'paidAmount') {
-          val = Number(val).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+        if (
+          col.key === 'dueAmount' ||
+          col.key === 'openAmount' ||
+          col.key === 'paidAmount' ||
+          col.key === 'contractedValue' ||
+          col.key === 'totalPaid' ||
+          col.key === 'pendingAmount' ||
+          col.key === 'overdueAmount' ||
+          col.key === 'totalValue' ||
+          col.key === 'balanceRemaining'
+        ) {
+          val = Number(val || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+        } else if (col.key === 'overdueRate' || col.key === 'amortizationRate') {
+          val = `${Number(val || 0).toFixed(1)}%`;
         } else if (col.key === 'daysOverdue') {
           val = `${val} d`;
-        } else if (col.key === 'dueDate' || col.key === 'deliveryDate' || col.key === 'deadline') {
+        } else if (col.key === 'dueDate' || col.key === 'deliveryDate' || col.key === 'deadline' || col.key === 'signedAt') {
           val = val ? new Date(val + 'T12:00:00').toLocaleDateString('pt-BR') : '-';
         }
         doc.text(String(val ?? '-'), currX, y + 4, {
